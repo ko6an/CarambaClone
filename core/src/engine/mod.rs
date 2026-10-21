@@ -4,6 +4,8 @@ mod auto;
 pub mod token;
 pub mod undo;
 
-pub use auto::{is_password, Action, Decision, Engine, EngineConfig, Event, Exceptions, Reason};
+pub use auto::{
+    is_password, Action, Decision, Engine, EngineConfig, Event, Exceptions, Reason, SpellChecker,
+};
 pub use token::{is_hard_boundary, Press, Token};
 pub use undo::{UndoLog, UndoRecord};

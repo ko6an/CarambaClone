@@ -33,6 +33,8 @@ pub struct TapShared {
     pub last_flags: Mutex<u64>,
     /// Начало удержания Shift.
     pub shift_start: Mutex<Option<Instant>>,
+    /// Момент последнего одиночного Shift-tap (для Double Shift).
+    pub last_tap_ms: Mutex<Option<u64>>,
     /// Начало удержания Option.
     pub option_start: Mutex<Option<Instant>>,
     /// Мач-порт тапа — включение заново из сторожевого потока.
@@ -62,6 +64,7 @@ pub fn start(enabled: bool, autoswitch: bool, dry_run: bool) -> Result<(), Strin
             secure: AtomicBool::new(false),
             last_flags: Mutex::new(0),
             shift_start: Mutex::new(None),
+            last_tap_ms: Mutex::new(None),
             option_start: Mutex::new(None),
             tap_port: Mutex::new(None),
         })
@@ -207,6 +210,15 @@ fn handle_key_down(sh: &Arc<TapShared>, event: ffi::CGEventRef) -> ffi::CGEventR
         return event;
     }
 
+    // Умная отмена по ⌫ (раздел 6 ТЗ): если последняя конвертация свежа
+    // и после неё ничего не набрано — откат вместо удаления символа.
+    if keycode == 0x33 && !repeat {
+        if let Some(actions) = smart_backspace() {
+            execute(&actions);
+            return std::ptr::null_mut(); // сам ⌫ поглощается
+        }
+    }
+
     // Хоткей конвертации выделенного: ⌥⇧R (раздел 6 ТЗ).
     if keycode == 0x0F && flags & ffi::K_CG_EVENT_FLAG_MASK_OPTION != 0 && shift {
         tracing::info!("хоткей ⌥⇧R: конвертация выделенного");
@@ -288,6 +300,22 @@ fn undo_last() -> ffi::CGEventRef {
     std::ptr::null_mut()
 }
 
+/// Умный ⌫: Some(действия) — откат (⌫ поглощается), None — обычное поведение.
+fn smart_backspace() -> Option<Vec<Action>> {
+    let mut engine = engine_state::lock().lock();
+    if !engine.buffer_is_empty() {
+        return None; // набирается слово — ⌫ работает как обычно
+    }
+    let window = engine.config().undo_window_ms;
+    let actions = engine.undo_mut().revert_last(now_ms(), window, true);
+    if actions.is_empty() {
+        None
+    } else {
+        tracing::info!("умный ⌫: откат конвертации");
+        Some(actions)
+    }
+}
+
 /// flagsChanged: детектор одиночных Shift/Option-taps (решение D5).
 fn handle_flags_changed(sh: &Arc<TapShared>, event: ffi::CGEventRef) {
     let keycode = unsafe {
@@ -326,11 +354,25 @@ fn handle_flags_changed(sh: &Arc<TapShared>, event: ffi::CGEventRef) {
     }
 }
 
-/// Одиночный Shift-tap: смена раскладки без прерывания набора.
+/// Одиночный Shift-tap: смена раскладки без прерывания набора;
+/// если до этого был ещё один tap (<400 мс) — Double Shift, откат.
 fn on_single_shift_tap() {
     let sh = shared();
     if !sh.enabled.load(Ordering::SeqCst) {
         return;
+    }
+    // Double Shift: два tap подряд — Smart Undo.
+    if let Some(at) = sh.last_tap_ms.lock().to_owned() {
+        if now_ms().saturating_sub(at) <= 400 {
+            *sh.last_tap_ms.lock() = None;
+            tracing::info!("double shift: откат последней конвертации");
+            let mut engine = engine_state::lock().lock();
+            let window = engine.config().undo_window_ms;
+            let actions = engine.undo_mut().revert_last(now_ms(), window, true);
+            drop(engine);
+            execute(&actions);
+            return;
+        }
     }
     let cur = {
         let engine = engine_state::lock().lock();
@@ -341,6 +383,7 @@ fn on_single_shift_tap() {
     } else {
         "com.apple.keylayout.Russian"
     };
+    *sh.last_tap_ms.lock() = Some(now_ms());
     tracing::info!("shift-tap: {cur} -> {next}");
     let _ = super::input_source::select_by_id(next);
     // Синхронизация движка произойдёт уведомлением системы (см. workers.rs),

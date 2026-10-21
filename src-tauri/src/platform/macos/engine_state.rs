@@ -47,8 +47,15 @@ pub fn engine_config(cfg: &Config) -> EngineConfig {
 }
 
 /// Установить список исключений (настройки/пакеты Правил, M3).
-#[allow(dead_code)] // Подключается в M3 (правила «Правил»/исключения).
+#[allow(dead_code)] // Подключается в M3 (профили приложений/правила).
 pub fn set_exceptions(words: Vec<String>) {
     let mut engine = lock().lock();
     *engine.exceptions_mut() = Exceptions::new(words);
+}
+
+/// Подключить системную орфографию (NSSpellChecker) в движок.
+pub fn set_spell_checker() {
+    let checker = crate::platform::macos::spell::hook();
+    let mut engine = lock().lock();
+    engine.set_spell_checker(checker);
 }

@@ -132,6 +132,8 @@ fn main() {
             {
                 use crate::platform::macos;
                 macos::engine_state::init(&cfg_setup);
+                // Системная орфография (M3) — замыкание на главный поток.
+                macos::engine_state::set_spell_checker();
                 macos::event_tap::start(cfg_setup.enabled, cfg_setup.autoswitch, cfg_setup.dry_run)
                     .map_err(Box::<dyn std::error::Error>::from)?;
                 macos::workers::start();

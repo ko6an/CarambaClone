@@ -15,6 +15,8 @@ pub mod layout_notifier;
 #[cfg(target_os = "macos")]
 pub mod pasteboard;
 #[cfg(target_os = "macos")]
+pub mod spell;
+#[cfg(target_os = "macos")]
 pub mod typing;
 #[cfg(target_os = "macos")]
 pub mod workers;
