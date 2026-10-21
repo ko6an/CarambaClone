@@ -29,6 +29,7 @@ pub trait Platform {
 }
 
 /// Экземпляр платформы для текущей ОС.
+#[allow(dead_code)] // Используется с M5 (центральные входы платформы).
 pub fn create_default() -> Box<dyn Platform + Send> {
     #[cfg(target_os = "macos")]
     return Box::new(macos::MacosPlatform::new());

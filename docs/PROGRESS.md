@@ -1,5 +1,45 @@
 # Прогресс работ
 
+## M2 Платформа — готово (локальная проверка)
+
+**Дата:** 2026-10-21
+
+Сделано:
+
+- **CGEventTap** (session, фильтрующий, отдельный поток с CFRunLoop):
+  keyDown/keyUp/flagsChanged/левый клик; синтетика помечается
+  `CARAMBA_MAGIC` в `kCGEventSourceUserData` и пропускается; сторож
+  включает тап заново при выключении системой + обработка DisabledByTimeout.
+- Печать: backspaces, текст юникод-чанками (≤20 UTF-16), хоткеи ⌘C/⌘V
+  (`CGEventKeyboardSetUnicodeString`; CGEventRef освобождается CFRelease).
+- Ручные хоткеи M2: ⌥⇧R (конвертация выделенного через буфер обмена,
+  восстановление текста), одиночный Shift-tap (смена раскладки), Option-tap
+  (конвертация текущего слова / откат), Pause=F15 (откат).
+- TIS: выбор источника по id, `current_input_source_id`; Darwin-подписка
+  `AppleSelectedInputChanged` (на главном рун-лупе) — синхронизация движка
+  и флага раскладки в трее (short_name, `tray.set_title`).
+- NSWorkspace (frontmost через objc2-app-kit), NSPasteboard, AX
+  (`AXIsProcessTrustedWithOptions`, `CGPreflight{Listen,Post}EventAccess`),
+  Secure Input (`IsSecureEventInputEnabled`, опрос 250 мс; при входе — сброс
+  буфера и passthrough).
+- Общий движок для тапа и команд (`engine_state`), маппинг настроек:
+  aggressiveness → min_len (5/3/2), ignore_digits_symbols → tech-токен,
+  включение/выключение, autoswitch, dry-run.
+- Команды UI: `permissions_status`, `open_permissions_pane`, `convert_current_word`,
+  `set_enabled_cmd`; вкладка «Разрешения» в настройках с кнопками открытия панелей
+  (Accessibility / Input Monitoring).
+- Core-мелочи: `flip_text`/`flip_auto` (снапшот-конверт текста), 
+  `Engine::evaluate_current_word`, `buffer_is_empty`, тесты дисциплины таблиц
+  RU vs Russian-PC (+8 новых тестов, всего 58+).
+- Проверено: fmt/clippy/test/workspace, `npm run build`, прожект запускается:
+  тап стартует, без разрешений ожидаемо `CGEventTapCreate вернул NULL` —
+  мастер разрешений открыт, после ручного подтверждения Accessibility и
+  Input Monitoring + перезапуска ручная проверка на тексте (Notes/Safari).
+
+Не перенесено в M2: восстановление нетекстовых буферов обмена (разные структуры),
+⌥⇧R для повторного «сохранения формата» — M3; тапuto-фикс от fast path при
+Secure Input: passthrough — уже.
+
 ## M1 Ядро — готово (локальная проверка)
 
 **Дата:** 2026-10-21
@@ -66,7 +106,20 @@ NSSpellChecker подключается в M3. Приёмочные с опеч�
 
 ## Следующий этап
 
-- **M2 Платформа:** CGEventTap, TIS на главном потоке, печать событий,
-  Secure Input, мастер разрешений, ручные хоткеи (⌥, ⌥⇧R, DoubleShift, Pause),
-  флаг раскладки в трее; сверка таблиц с `UCKeyTranslate` на реальной системе.
-  Локальная ручная конвертация работает в Notes и Safari.
+- **M3 Автопереключение:** NSSpellChecker на главном потоке + словарная
+  валидность через движок,工程有限公司 приёмы исключений из UI, Smart Undo
+  полноценно (⌫ и DoubleShift), профили приложений; локальная ручная
+  проверка сценариев раздела 13.
+
+- **M2 канал ручных проверок:** после выдачи разрешений проверяется:
+  печатаем `ghbdtn␣` → `привет ` в Notes; `руддщ␣` → `hello`; Shift-tap
+  между US/Russian; ⌥⇧R конвертация выделенного; Pause/F15 откат.
+  Настоящая проверка выполняется пользователем (разрешения вручную).
+
+## M2 «Разрешения»: что нужно выдать
+
+1. Системные настройки → Конфиденциальность → Accessibility —
+   разрешить CarambaClone/CarambaClone.app.
+2. Конфиденциальность → Input Monitoring — разрешить (для перехвата
+   событий клавиатуры, используется «наблюдение» + «порождение»).
+3. Перезапустить приложение после выдачи.

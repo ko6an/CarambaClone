@@ -98,6 +98,8 @@ fn main() {
         .init();
 
     let cfg = caramba_core::config::load(&app_support_dir().join("config.toml"));
+    // Копия для setup (owner-клон в замыкание).
+    let cfg_setup = cfg.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -114,16 +116,27 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::get_config,
             commands::set_config,
-            commands::app_data_dir
+            commands::app_data_dir,
+            commands::permissions_status,
+            commands::open_permissions_pane,
+            commands::convert_current_word,
+            commands::set_enabled_cmd
         ])
-        .setup(|app| {
+        .setup(move |app| {
             // Нет значка в Dock (только строка меню).
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
-            // Платформенный слой M0 умеет только читать/ставить раскладку.
-            let plat = platform::create_default();
-            tracing::info!("раскладка при старте: {}", plat.current_layout());
+            // Движок и тап (M2): автомат, поток CGEventTap, наблюдатели.
+            #[cfg(target_os = "macos")]
+            {
+                use crate::platform::macos;
+                macos::engine_state::init(&cfg_setup);
+                macos::event_tap::start(cfg_setup.enabled, cfg_setup.autoswitch, cfg_setup.dry_run)
+                    .map_err(Box::<dyn std::error::Error>::from)?;
+                macos::workers::start();
+                macos::layout_notifier::start(app.handle());
+            }
 
             tray::create_tray(app.handle())?;
             Ok(())

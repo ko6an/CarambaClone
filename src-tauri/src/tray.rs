@@ -2,6 +2,7 @@
 //!
 //! В M0 — минимальное меню: Включить/выключить, Пауза-заглушка, Настройки, Выход.
 
+use caramba_core::layouts::builtin_pair;
 use tauri::{
     image::Image,
     menu::{MenuBuilder, MenuItemBuilder},
@@ -62,6 +63,21 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         .build(app)?;
 
     Ok(())
+}
+
+/// Обновить флаг раскладки рядом с иконкой трея.
+pub fn update_layout_flag(app: &AppHandle, layout_id: &str) {
+    let pair = builtin_pair();
+    let short = if layout_id.contains("Russian") {
+        &pair.ru
+    } else {
+        &pair.en
+    }
+    .short_name
+    .to_string();
+    if let Some(tray) = app.tray_by_id("main-tray") {
+        let _ = tray.set_title(Some(short));
+    }
 }
 
 /// Показать окно настроек (создаётся по требованию и прячется при закрытии).

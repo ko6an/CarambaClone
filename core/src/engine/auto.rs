@@ -231,6 +231,22 @@ impl Engine {
         &mut self.undo
     }
 
+    /// Оценить накопленное слово прямо сейчас (ручные режимы: Option-tap).
+    /// Буфер опустошается; логика та же, что у жёсткой границы.
+    pub fn evaluate_current_word(&mut self, now_ms: u64) -> Vec<Action> {
+        if self.buffer.is_empty() {
+            return Vec::new();
+        }
+        let mut buffer = std::mem::take(&mut self.buffer);
+        let decision = self.evaluate_boundary(&mut buffer, now_ms);
+        decision.actions
+    }
+
+    /// Пуст ли необработанный буфер нажатий (для условия откатов).
+    pub fn buffer_is_empty(&self) -> bool {
+        self.buffer.is_empty()
+    }
+
     pub fn exceptions_mut(&mut self) -> &mut Exceptions {
         &mut self.exceptions
     }

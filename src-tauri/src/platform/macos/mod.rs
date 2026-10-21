@@ -1,9 +1,28 @@
 //! macOS-реализации поверх CGEventTap/TIS/AX.
 
 #[cfg(target_os = "macos")]
+pub mod ax;
+#[cfg(target_os = "macos")]
+pub mod engine_state;
+#[cfg(target_os = "macos")]
+pub mod event_tap;
+#[cfg(target_os = "macos")]
 pub mod ffi;
 #[cfg(target_os = "macos")]
 pub mod input_source;
+#[cfg(target_os = "macos")]
+pub mod layout_notifier;
+#[cfg(target_os = "macos")]
+pub mod pasteboard;
+#[cfg(target_os = "macos")]
+pub mod typing;
+#[cfg(target_os = "macos")]
+pub mod workers;
+#[cfg(target_os = "macos")]
+pub mod workspace;
+
+#[cfg(target_os = "macos")]
+pub use input_source::MacosPlatform;
 
 #[cfg(not(target_os = "macos"))]
 /// Заглушки для не-macOS: `cargo check` должен проходить везде.
@@ -41,9 +60,6 @@ pub mod stubs {
         fn play_sound(&self, _name: &str) {}
     }
 }
-
-#[cfg(target_os = "macos")]
-pub use input_source::MacosPlatform;
 
 #[cfg(not(target_os = "macos"))]
 pub use stubs::StubPlatform;

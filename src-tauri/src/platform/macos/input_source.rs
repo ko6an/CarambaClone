@@ -1,6 +1,5 @@
-//! Работа с источниками ввода (TIS): чтение текущей раскладки и выбор.
-//!
-//! Все вызовы TIS должны выполняться на главном потоке (требование macOS).
+//! Работа с источниками ввода (TIS): чтение текущей раскладки и выбор;
+//! платформенные операции (печать, буфер, Secure Input, NSWorkspace).
 
 use core_foundation::base::{CFRelease, TCFType};
 use core_foundation::string::{CFString, CFStringRef};
@@ -16,105 +15,111 @@ impl MacosPlatform {
     pub fn new() -> Self {
         Self
     }
+}
 
-    /// Property `kTISPropertyInputSourceID` текущего источника ввода.
-    fn current_source_id() -> String {
-        unsafe {
-            let src = ffi::TISCopyCurrentKeyboardInputSource();
-            if src.is_null() {
-                return String::new();
-            }
+/// Идентификатор текущего источника ввода (свободная функция — вызывается
+/// и из остальных модулей платформы).
+pub fn current_input_source_id() -> String {
+    unsafe {
+        // SAFETY: TIS* — тредобезопасны; объект освобождаем CFRelease-ем.
+        let src = ffi::TISCopyCurrentKeyboardInputSource();
+        if src.is_null() {
+            return String::new();
+        }
+        let prop = ffi::TISGetInputSourceProperty(src, ffi::kTISPropertyInputSourceID);
+        let result = if prop.is_null() {
+            String::new()
+        } else {
+            CFString::wrap_under_get_rule(prop as CFStringRef).to_string()
+        };
+        CFRelease(src as *const std::ffi::c_void);
+        result
+    }
+}
+
+/// Выбрать источник ввода по InputSourceID (вне трейта, вызывается и
+/// из потока тапа для действий SwitchLayout).
+pub fn select_by_id(id: &str) -> Result<(), String> {
+    unsafe {
+        // SAFETY: TISCreateInputSourceList — чистая функция; массив CF.
+        let list = ffi::TISCreateInputSourceList(std::ptr::null(), false);
+        if list.is_null() {
+            return Err("TIS: список источников пуст".into());
+        }
+        let arr =
+            core_foundation::array::CFArray::<*const std::ffi::c_void>::wrap_under_create_rule(
+                list,
+            );
+        let target = CFString::new(id);
+        let mut found: Option<ffi::TISInputSourceRef> = None;
+        for item in arr.iter() {
+            let src = *item as ffi::TISInputSourceRef;
             let prop = ffi::TISGetInputSourceProperty(src, ffi::kTISPropertyInputSourceID);
-            let result = if prop.is_null() {
-                String::new()
-            } else {
-                CFString::wrap_under_get_rule(prop).to_string()
-            };
-            CFRelease(src as *const std::ffi::c_void);
-            result
+            if !prop.is_null() {
+                let s = CFString::wrap_under_get_rule(prop as CFStringRef);
+                if s == target {
+                    found = Some(src);
+                    break;
+                }
+            }
+        }
+        match found {
+            Some(src) => {
+                let status = ffi::TISSelectInputSource(src);
+                if status == 0 {
+                    Ok(())
+                } else {
+                    Err(format!("TISSelectInputSource: код {status}"))
+                }
+            }
+            None => Err(format!("источник {id} не найден")),
         }
     }
 }
 
+#[allow(dead_code)] // Трейт задействуется полностью этапами M3-M5.
 impl Platform for MacosPlatform {
     fn current_layout(&self) -> String {
-        Self::current_source_id()
+        current_input_source_id()
     }
 
     fn select_layout(&self, id: &str) -> Result<(), String> {
-        unsafe {
-            // Ищем источник по InputSourceID среди включённых в системе.
-            let list = ffi::TISCreateInputSourceList(std::ptr::null(), false.into());
-            if list.is_null() {
-                return Err("TIS: список источников пуст".into());
-            }
-            let arr =
-                core_foundation::array::CFArray::<*const std::ffi::c_void>::wrap_under_create_rule(
-                    list,
-                );
-            let target = CFString::new(id);
-            let mut found: Option<ffi::TISInputSourceRef> = None;
-            for item in arr.iter() {
-                let src = *item as ffi::TISInputSourceRef;
-                let src_id = ffi::TISGetInputSourceProperty(src, ffi::kTISPropertyInputSourceID);
-                if !src_id.is_null() {
-                    let s = CFString::wrap_under_get_rule(src_id as CFStringRef);
-                    if s == target {
-                        found = Some(src);
-                        break;
-                    }
-                }
-            }
-            match found {
-                Some(src) => {
-                    let status = ffi::TISSelectInputSource(src);
-                    if status == 0 {
-                        Ok(())
-                    } else {
-                        Err(format!("TISSelectInputSource: код {status}"))
-                    }
-                }
-                None => Err(format!("источник {id} не найден")),
-            }
-        }
+        select_by_id(id)
     }
 
-    fn post_keys(&self, _keys: Vec<(u16, bool)>) -> Result<(), String> {
-        // Реализуется в M2 (event tap / CGEventPost).
-        Err("не реализовано до M2".into())
+    fn post_keys(&self, keys: Vec<(u16, bool)>) -> Result<(), String> {
+        super::typing::post_keys(&keys);
+        Ok(())
     }
 
-    fn post_text(&self, _text: &str) -> Result<(), String> {
-        // Реализуется в M2 через CGEventKeyboardSetUnicodeString.
-        Err("не реализовано до M2".into())
+    fn post_text(&self, text: &str) -> Result<(), String> {
+        super::typing::post_text(text);
+        Ok(())
     }
 
     fn frontmost_app(&self) -> String {
-        // Реализуется в M2 через NSWorkspace.
-        String::new()
+        super::workspace::frontmost_bundle_id()
     }
 
     fn is_secure_input(&self) -> bool {
-        // Реализуется в M2 через IsSecureEventInputEnabled.
-        false
+        super::ax::is_secure_event_input()
     }
 
     fn spell_check(&self, _word: &str, _lang: &str) -> bool {
-        // Реализуется в M3 через NSSpellChecker (главный поток).
+        // Подключается в M3 через NSSpellChecker (главный поток).
         false
     }
 
     fn clipboard_get(&self) -> String {
-        // Реализуется в M2 через NSPasteboard.
-        String::new()
+        super::pasteboard::text().unwrap_or_default()
     }
 
-    fn clipboard_set(&self, _text: &str) {
-        // Реализуется в M2 через NSPasteboard.
+    fn clipboard_set(&self, text: &str) {
+        super::pasteboard::set_text(text)
     }
 
     fn play_sound(&self, _name: &str) {
-        // Реализуется в M5 через NSSound.
+        // Подключается в M5 через NSSound.
     }
 }
 
