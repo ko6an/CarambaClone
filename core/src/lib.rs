@@ -5,6 +5,7 @@
 #![forbid(unsafe_code)]
 
 pub mod config;
+pub mod dictionaries;
 pub mod engine;
 pub mod layouts;
 pub mod rules;

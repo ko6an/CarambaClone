@@ -1,0 +1,85 @@
+# Пары двойников «Маскировки»: заданы кодовыми точками, неотличимы глазами.
+# Строчные к, в, н, м, т не заменяются: визуально отличаются от латинских.
+[[pairs]]
+from_lower = 'а'
+to_lower = 'a'
+from_upper = 'А'
+to_upper = 'A'
+enabled = true
+
+[[pairs]]
+from_lower = 'в'
+to_lower = 'в'
+from_upper = 'В'
+to_upper = 'B'
+enabled = true
+
+[[pairs]]
+from_lower = 'е'
+to_lower = 'e'
+from_upper = 'Е'
+to_upper = 'E'
+enabled = true
+
+[[pairs]]
+from_lower = 'к'
+to_lower = 'к'
+from_upper = 'К'
+to_upper = 'K'
+enabled = true
+
+[[pairs]]
+from_lower = 'м'
+to_lower = 'м'
+from_upper = 'М'
+to_upper = 'M'
+enabled = true
+
+[[pairs]]
+from_lower = 'н'
+to_lower = 'н'
+from_upper = 'Н'
+to_upper = 'H'
+enabled = true
+
+[[pairs]]
+from_lower = 'о'
+to_lower = 'o'
+from_upper = 'О'
+to_upper = 'O'
+enabled = true
+
+[[pairs]]
+from_lower = 'р'
+to_lower = 'p'
+from_upper = 'Р'
+to_upper = 'P'
+enabled = true
+
+[[pairs]]
+from_lower = 'с'
+to_lower = 'c'
+from_upper = 'С'
+to_upper = 'C'
+enabled = true
+
+[[pairs]]
+from_lower = 'т'
+to_lower = 'т'
+from_upper = 'Т'
+to_upper = 'T'
+enabled = true
+
+[[pairs]]
+from_lower = 'у'
+to_lower = 'y'
+from_upper = 'У'
+to_upper = 'Y'
+enabled = true
+
+[[pairs]]
+from_lower = 'х'
+to_lower = 'x'
+from_upper = 'Х'
+to_upper = 'X'
+enabled = true

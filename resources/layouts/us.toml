@@ -1,0 +1,349 @@
+id = "com.apple.keylayout.US"
+title = "U.S."
+short_name = "EN"
+lang = "En"
+
+[[keys]]
+kc = 0
+lower = "a"
+upper = "A"
+
+[[keys]]
+kc = 1
+lower = "s"
+upper = "S"
+
+[[keys]]
+kc = 2
+lower = "d"
+upper = "D"
+
+[[keys]]
+kc = 3
+lower = "f"
+upper = "F"
+
+[[keys]]
+kc = 4
+lower = "h"
+upper = "H"
+
+[[keys]]
+kc = 5
+lower = "g"
+upper = "G"
+
+[[keys]]
+kc = 6
+lower = "z"
+upper = "Z"
+
+[[keys]]
+kc = 7
+lower = "x"
+upper = "X"
+
+[[keys]]
+kc = 8
+lower = "c"
+upper = "C"
+
+[[keys]]
+kc = 9
+lower = "v"
+upper = "V"
+
+[[keys]]
+kc = 10
+lower = "§"
+upper = "±"
+
+[[keys]]
+kc = 11
+lower = "b"
+upper = "B"
+
+[[keys]]
+kc = 12
+lower = "q"
+upper = "Q"
+
+[[keys]]
+kc = 13
+lower = "w"
+upper = "W"
+
+[[keys]]
+kc = 14
+lower = "e"
+upper = "E"
+
+[[keys]]
+kc = 15
+lower = "r"
+upper = "R"
+
+[[keys]]
+kc = 16
+lower = "y"
+upper = "Y"
+
+[[keys]]
+kc = 17
+lower = "t"
+upper = "T"
+
+[[keys]]
+kc = 18
+lower = "1"
+upper = "!"
+
+[[keys]]
+kc = 19
+lower = "2"
+upper = "@"
+
+[[keys]]
+kc = 20
+lower = "3"
+upper = "#"
+
+[[keys]]
+kc = 21
+lower = "4"
+upper = "$"
+
+[[keys]]
+kc = 22
+lower = "6"
+upper = "^"
+
+[[keys]]
+kc = 23
+lower = "5"
+upper = "%"
+
+[[keys]]
+kc = 24
+lower = "="
+upper = "+"
+
+[[keys]]
+kc = 25
+lower = "9"
+upper = "("
+
+[[keys]]
+kc = 26
+lower = "7"
+upper = "&"
+
+[[keys]]
+kc = 27
+lower = "-"
+upper = "_"
+
+[[keys]]
+kc = 28
+lower = "8"
+upper = "*"
+
+[[keys]]
+kc = 29
+lower = "0"
+upper = ")"
+
+[[keys]]
+kc = 30
+lower = "]"
+upper = "}"
+
+[[keys]]
+kc = 31
+lower = "o"
+upper = "O"
+
+[[keys]]
+kc = 32
+lower = "u"
+upper = "U"
+
+[[keys]]
+kc = 33
+lower = "["
+upper = "{"
+
+[[keys]]
+kc = 34
+lower = "i"
+upper = "I"
+
+[[keys]]
+kc = 35
+lower = "p"
+upper = "P"
+
+[[keys]]
+kc = 37
+lower = "l"
+upper = "L"
+
+[[keys]]
+kc = 38
+lower = "j"
+upper = "J"
+
+[[keys]]
+kc = 39
+lower = "'"
+upper = "\""
+
+[[keys]]
+kc = 40
+lower = "k"
+upper = "K"
+
+[[keys]]
+kc = 41
+lower = ";"
+upper = ":"
+
+[[keys]]
+kc = 42
+lower = "\\"
+upper = "|"
+
+[[keys]]
+kc = 43
+lower = ","
+upper = "<"
+
+[[keys]]
+kc = 44
+lower = "/"
+upper = "?"
+
+[[keys]]
+kc = 45
+lower = "n"
+upper = "N"
+
+[[keys]]
+kc = 46
+lower = "m"
+upper = "M"
+
+[[keys]]
+kc = 47
+lower = "."
+upper = ">"
+
+[[keys]]
+kc = 49
+lower = " "
+upper = " "
+
+[[keys]]
+kc = 50
+lower = "`"
+upper = "~"
+
+[[keys]]
+kc = 65
+lower = "."
+upper = "."
+
+[[keys]]
+kc = 66
+lower = ""
+upper = "*"
+
+[[keys]]
+kc = 67
+lower = "*"
+upper = "*"
+
+[[keys]]
+kc = 69
+lower = "+"
+upper = "+"
+
+[[keys]]
+kc = 70
+lower = ""
+upper = "+"
+
+[[keys]]
+kc = 72
+lower = ""
+upper = "="
+
+[[keys]]
+kc = 75
+lower = "/"
+upper = "/"
+
+[[keys]]
+kc = 77
+lower = ""
+upper = "/"
+
+[[keys]]
+kc = 78
+lower = "-"
+upper = "-"
+
+[[keys]]
+kc = 81
+lower = "="
+upper = "="
+
+[[keys]]
+kc = 82
+lower = "0"
+upper = "0"
+
+[[keys]]
+kc = 83
+lower = "1"
+upper = "1"
+
+[[keys]]
+kc = 84
+lower = "2"
+upper = "2"
+
+[[keys]]
+kc = 85
+lower = "3"
+upper = "3"
+
+[[keys]]
+kc = 86
+lower = "4"
+upper = "4"
+
+[[keys]]
+kc = 87
+lower = "5"
+upper = "5"
+
+[[keys]]
+kc = 88
+lower = "6"
+upper = "6"
+
+[[keys]]
+kc = 89
+lower = "7"
+upper = "7"
+
+[[keys]]
+kc = 91
+lower = "8"
+upper = "8"
+
+[[keys]]
+kc = 92
+lower = "9"
+upper = "9"
