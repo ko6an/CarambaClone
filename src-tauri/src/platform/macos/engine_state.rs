@@ -40,8 +40,17 @@ pub fn engine_config(cfg: &Config) -> EngineConfig {
         },
         tech_token_enabled: cfg.ignore_digits_symbols,
         password_check: true,
-        masking_enabled: false, // включается в M4 отдельной секцией настроек
-        masking_intensity: 50,
+        masking_enabled: cfg.masking_on,
+        masking_intensity: cfg.masking_intensity,
+        masking_direction: cfg.masking_direction,
+        typos_fix: cfg.typos_fix,
+        trick_unit_sign: cfg.trick_unit_sign,
+        trick_stuck_words: cfg.trick_stuck_words,
+        trick_brackets: cfg.trick_brackets,
+        trick_trailing_signs: cfg.trick_trailing_signs,
+        trick_cap_excl: cfg.trick_cap_excl,
+        trick_particles: cfg.trick_particles,
+        yo_fixer: cfg.yo_fixer,
         undo_window_ms: 2000,
     }
 }

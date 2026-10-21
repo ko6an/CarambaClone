@@ -120,7 +120,8 @@ fn main() {
             commands::permissions_status,
             commands::open_permissions_pane,
             commands::convert_current_word,
-            commands::set_enabled_cmd
+            commands::set_enabled_cmd,
+            commands::set_masking_cmd
         ])
         .setup(move |app| {
             // Нет значка в Dock (только строка меню).
@@ -138,6 +139,27 @@ fn main() {
                     .map_err(Box::<dyn std::error::Error>::from)?;
                 macos::workers::start();
                 macos::layout_notifier::start(app.handle());
+                // Маскировка (M4): стартовое состояние, интенсивность,
+                // язык раскладки и хоткей ⌃⌥M.
+                macos::event_tap::set_masking(cfg_setup.masking_on);
+                macos::event_tap::set_masking_intensity(cfg_setup.masking_intensity);
+                let id0 = macos::input_source::current_input_source_id();
+                macos::event_tap::set_current_lang(if id0.contains("Russian") {
+                    macos::event_tap::LANG_RU
+                } else {
+                    macos::event_tap::LANG_EN
+                });
+                let toggle_handle = app.handle().clone();
+                macos::event_tap::set_masking_toggle(Box::new(move |on| {
+                    let h = toggle_handle.clone();
+                    let h2 = h.clone();
+                    let _ = h.run_on_main_thread(move || {
+                        if let Err(e) = crate::commands::apply_masking(&h2, on) {
+                            tracing::error!("маскировка: {e}");
+                        }
+                    });
+                }));
+                crate::tray::set_masking_indicator(app.handle(), cfg_setup.masking_on);
             }
 
             tray::create_tray(app.handle())?;

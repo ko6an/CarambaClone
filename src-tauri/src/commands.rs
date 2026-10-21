@@ -2,7 +2,7 @@
 
 use caramba_core::config::Config;
 use parking_lot::Mutex;
-use tauri::State;
+use tauri::{Manager, State};
 
 /// Состояние приложения в памяти.
 pub struct AppState {
@@ -141,6 +141,47 @@ pub fn set_enabled_cmd(state: State<AppState>, on: bool) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     crate::platform::macos::event_tap::set_enabled(on);
     Ok(())
+}
+
+/// Применить состояние «Маскировки» ко всем подсистемам
+/// (меню, хоткей ⌃⌥M, настройки). Сохраняем конфиг, если включено
+/// «Запоминать» (FR: состояние не сохраняется между запусками,
+/// пока не включено «Запоминать»).
+pub fn apply_masking(app: &tauri::AppHandle, on: bool) -> Result<(), String> {
+    let (saved_remember, intensity) = {
+        let st: tauri::State<AppState> = app.state();
+        let mut cfg = st.config.lock();
+        cfg.masking_on = on;
+        (cfg.masking_remember, cfg.masking_intensity)
+    };
+    #[cfg(target_os = "macos")]
+    {
+        crate::platform::macos::event_tap::set_masking(on);
+        crate::platform::macos::event_tap::set_masking_intensity(intensity);
+        let cfg = app.state::<AppState>().config.lock().clone();
+        crate::platform::macos::engine_state::apply_config(&cfg);
+    }
+    crate::tray::set_masking_indicator(app, on);
+    if saved_remember {
+        let path = {
+            let st: tauri::State<AppState> = app.state();
+            let mut guard = st.config_path.lock();
+            if guard.is_none() {
+                let base = dirs_app_support()?;
+                *guard = Some(base.join("config.toml"));
+            }
+            guard.clone().unwrap()
+        };
+        let cfg = app.state::<AppState>().config.lock().clone();
+        caramba_core::config::save_atomic(&path, &cfg).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Тумблер «Маскировки» (команда интерфейса).
+#[tauri::command]
+pub fn set_masking_cmd(app: tauri::AppHandle, on: bool) -> Result<(), String> {
+    apply_masking(&app, on)
 }
 
 /// Выдать путь каталога данных интерфейсу (для диагностики).

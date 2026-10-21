@@ -74,10 +74,161 @@ function selectTab(id: string): void {
       });
     return;
   }
+  if (id === "fixes") {
+    void renderFixes(panel);
+    return;
+  }
   const p = document.createElement("p");
   p.className = "mt-4 text-sm";
   p.textContent = `Вкладка «${id}» появится в M5.`;
   panel.appendChild(p);
+}
+
+interface BoolToggle {
+  key: keyof Config;
+  title: string;
+}
+
+const FIX_TOGGLES: Array<BoolToggle> = [
+  { key: "typos_fix", title: "Опечатки: перестановки, пропуск, удвоение" },
+  { key: "trick_unit_sign", title: "Фокус 2: привет1 → привет!" },
+  { key: "trick_stuck_words", title: "Фокус 3: слипшиеся слова (сонатуБаха)" },
+  { key: "trick_brackets", title: "Фокус 4: скобки без Shift (9/0)" },
+  { key: "trick_trailing_signs", title: "Фокус 5: знак в конце (б, ю)" },
+  { key: "trick_cap_excl", title: "Фокус 6: заглавная Ё → «!»" },
+  { key: "trick_particles", title: "Фокус 7: частицы (чтото → что-то)" },
+  { key: "yo_fixer", title: "Ёфикатор (однозначные «е» → «ё»)" },
+];
+
+async function renderFixes(el: HTMLElement): Promise<void> {
+  let cfg: Config;
+  try {
+    cfg = await invoke<Config>("get_config");
+  } catch (e) {
+    el.textContent = `Ошибка: ${String(e)}`;
+    return;
+  }
+  const head = document.createElement("h2");
+  head.className = "text-lg font-semibold mt-4";
+  head.textContent = "Исправления";
+  el.appendChild(head);
+  for (const t of FIX_TOGGLES) {
+    const row = document.createElement("label");
+    row.className = "flex items-center gap-2 mt-2 text-sm";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = cfg[t.key] as boolean;
+    box.addEventListener("change", () => {
+      void (async () => {
+        (cfg[t.key] as boolean) = box.checked;
+        try {
+          await invoke("set_config", { config: cfg });
+        } catch (e) {
+          box.checked = !box.checked;
+          console.error(String(e));
+        }
+      })();
+    });
+    const span = document.createElement("span");
+    span.textContent = t.title;
+    row.append(box, span);
+    el.appendChild(row);
+  }
+  const maskTitle = document.createElement("p");
+  maskTitle.className = "mt-4 font-medium text-sm";
+  maskTitle.textContent = "Маскировка (⌃⌥M)";
+  el.appendChild(maskTitle);
+  appendMaskControl(el, "Включена", "masking_on", cfg, (c) => Boolean(c.masking_on));
+  appendMaskControl(
+    el,
+    "Запоминать состояние между запусками",
+    "masking_remember",
+    cfg,
+    (c) => c.masking_remember,
+  );
+  const intensityRow = document.createElement("div");
+  intensityRow.className = "flex items-center gap-2 mt-2 text-sm";
+  const intensity = document.createElement("input");
+  intensity.type = "range";
+  intensity.min = "10";
+  intensity.max = "100";
+  intensity.step = "5";
+  intensity.value = String(cfg.masking_intensity);
+  const intensityLabel = document.createElement("span");
+  intensityLabel.textContent = `Интенсивность: ${cfg.masking_intensity}%`;
+  intensity.addEventListener("change", () => {
+    void (async () => {
+      const v = Number(intensity.value);
+      cfg.masking_intensity = v;
+      intensityLabel.textContent = `Интенсивность: ${v}%`;
+      try {
+        await invoke("set_config", { config: cfg });
+      } catch {
+        intensity.value = String(cfg.masking_intensity);
+      }
+    })();
+  });
+  intensityRow.append(intensity, intensityLabel);
+  el.appendChild(intensityRow);
+  const dirRow = document.createElement("div");
+  dirRow.className = "flex items-center gap-2 mt-2 text-sm";
+  const dirSel = document.createElement("select");
+  for (const [value, label] of [
+    ["ru_to_lat", "Русские буквы → латинские двойники"],
+    ["lat_to_ru", "Латинские буквы → русские двойники"],
+  ] as const) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = label;
+    dirSel.appendChild(opt);
+  }
+  dirSel.value = cfg.masking_direction;
+  dirSel.addEventListener("change", () => {
+    void (async () => {
+      cfg.masking_direction = dirSel.value as Config["masking_direction"];
+      try {
+        await invoke("set_config", { config: cfg });
+      } catch {
+        dirSel.value = cfg.masking_direction;
+      }
+    })();
+  });
+  const dirLabel = document.createElement("span");
+  dirLabel.textContent = "Направление:";
+  dirRow.append(dirLabel, dirSel);
+  el.appendChild(dirRow);
+}
+
+function appendMaskControl(
+  el: HTMLElement,
+  title: string,
+  key: "masking_on" | "masking_remember",
+  cfg: Config,
+  get: (c: Config) => boolean,
+): void {
+  const row = document.createElement("label");
+  row.className = "flex items-center gap-2 mt-2 text-sm";
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.checked = get(cfg);
+  box.addEventListener("change", () => {
+    void (async () => {
+      cfg[key] = box.checked;
+      try {
+        if (key === "masking_on") {
+          await invoke("set_masking_cmd", { on: box.checked });
+        } else {
+          await invoke("set_config", { config: cfg });
+        }
+      } catch {
+        box.checked = !box.checked;
+      }
+    })();
+  });
+  const span = document.createElement("span");
+  span.textContent = title;
+  row.append(box, span);
+  el.appendChild(row);
 }
 
 function renderTabs(): void {

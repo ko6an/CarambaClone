@@ -5,7 +5,6 @@ use super::undo::{UndoLog, UndoRecord};
 use crate::dictionaries::ngram::NgramModel;
 use crate::dictionaries::WordSet;
 use crate::layouts::{classify, CharClass, Lang, Layout, Pair};
-use crate::rules::{mask, MaskDirection, MaskPairs};
 
 /// События, приходящие в движок от платформы.
 #[derive(Debug, Clone, PartialEq)]
@@ -64,6 +63,24 @@ pub struct EngineConfig {
     pub masking_enabled: bool,
     /// Интенсивность маскировки 10–100.
     pub masking_intensity: u8,
+    /// Направление маскировки.
+    pub masking_direction: crate::rules::masking::MaskDirection,
+    /// Автоисправление опечаток (FR-TYPO-1 б/в).
+    pub typos_fix: bool,
+    /// Фокус 2: единица вместо знака (привет1 → привет!).
+    pub trick_unit_sign: bool,
+    /// Фокус 3: слипшиеся слова (сонатуБаха → сонату Баха).
+    pub trick_stuck_words: bool,
+    /// Фокус 4: скобки без Shift (9 → «(», 0 → «)»).
+    pub trick_brackets: bool,
+    /// Фокус 5: знак в конце слова (б → «,», ю → «.»).
+    pub trick_trailing_signs: bool,
+    /// Фокус 6: «Ё» в конце слова → «!».
+    pub trick_cap_excl: bool,
+    /// Фокус 7: частицы (чтото → что-то, кембы → кем бы).
+    pub trick_particles: bool,
+    /// Ёфикатор.
+    pub yo_fixer: bool,
     /// Окно Smart Undo, мс.
     pub undo_window_ms: u64,
 }
@@ -76,6 +93,15 @@ impl Default for EngineConfig {
             password_check: true,
             masking_enabled: false,
             masking_intensity: 50,
+            masking_direction: crate::rules::masking::MaskDirection::default(),
+            typos_fix: true,
+            trick_unit_sign: true,
+            trick_stuck_words: true,
+            trick_brackets: true,
+            trick_trailing_signs: true,
+            trick_cap_excl: true,
+            trick_particles: true,
+            yo_fixer: false,
             undo_window_ms: 2000,
         }
     }
@@ -115,6 +141,10 @@ pub enum Reason {
     PairValid,
     /// Эвристика n-gram.
     Ngram,
+    /// «Фокус» или автоопечатка — исправление текста без смены раскладки.
+    Fixed,
+    /// Ёфикатор: «е» → «ё».
+    YoFixed,
     /// Пароль: переключиться на EN.
     Password,
 }
@@ -152,6 +182,10 @@ pub struct Engine {
     current_lang: Lang,
     /// Внешний источник валидности (NSSpellChecker) — подключает платформа.
     spell_check: Option<SpellChecker>,
+    /// Ё-пары (FR-YO-1): «еще» → «ещё».
+    yo_pairs: Vec<(String, String)>,
+    /// Незакрытые «(» — для фокуса 4 (сбрасывается на смене приложения).
+    open_brackets: i32,
 }
 
 impl Default for Engine {
@@ -181,6 +215,8 @@ impl Engine {
             buffer: Vec::new(),
             current_lang: Lang::En,
             spell_check: None,
+            yo_pairs: crate::rules::yo::builtin(),
+            open_brackets: 0,
         }
     }
 
@@ -270,6 +306,7 @@ impl Engine {
         match ev {
             Event::AppChanged { .. } => {
                 self.buffer.clear();
+                self.open_brackets = 0;
                 Vec::new()
             }
             Event::LayoutChanged { new_layout } => {
@@ -303,6 +340,14 @@ impl Engine {
         // Автоповтор не оцениваем и не кладём в буфер.
         if repeat {
             return Vec::new();
+        }
+        // Фокус 4: учёт незакрытых скобок (в обеих раскладках).
+        if let Some(sym) = self.pair.by_lang(self.current_lang).symbol(keycode, shift) {
+            match sym {
+                "(" => self.open_brackets += 1,
+                ")" => self.open_brackets = (self.open_brackets - 1).max(0),
+                _ => {}
+            }
         }
         // Жёсткая граница: оценить токен перед границей и пропустить клавишу.
         if is_hard_boundary(
@@ -409,8 +454,23 @@ impl Engine {
             }
         }
 
-        // 5. cur — валидное слово текущего языка: не трогать.
-        if self.valid(core_word(&cur_text, self.current_lang), self.current_lang) {
+        // 5. cur — валидное слово текущего языка: не трогать,
+        //    но ёфикатор может заменить «е» на «ё» (FR-YO-1).
+        // D10: цифры входят в токен («привет1») — валидность проверяем
+        // по всему токену, иначе «фокусы» не сработают.
+        if self.valid(&cur_text, self.current_lang) {
+            if let Some(yo) = self.yo_stage(self.current_lang, &cur_text) {
+                return self.replace_fixed(
+                    token,
+                    &cur_text,
+                    &yo,
+                    Reason::YoFixed,
+                    now_ms,
+                    &alt_text,
+                    cur_score,
+                    alt_score,
+                );
+            }
             return self.result(
                 Vec::new(),
                 Reason::CurrentValid,
@@ -422,7 +482,7 @@ impl Engine {
         }
 
         // 6. alt — валидное слово парного языка: конвертировать.
-        if self.valid(core_word(&alt_text, other_lang), other_lang) {
+        if self.valid(&alt_text, other_lang) {
             return self.convert(
                 token, &alt_text, other_lang, &cur_text, now_ms, cur_score, alt_score,
             );
@@ -437,6 +497,21 @@ impl Engine {
         if alt_score - cur_score >= threshold && (cur_impossible || alt_impossible) {
             return self.convert(
                 token, &alt_text, other_lang, &cur_text, now_ms, cur_score, alt_score,
+            );
+        }
+
+        // 8. «Фокусы» и опечатки (FR-TRICK, FR-TYPO): только если ни
+        //    словарная конвертация, ни эвристика n-gram не сработали.
+        if let Some(fixed) = self.fixes_stage(self.current_lang, &cur_text) {
+            return self.replace_fixed(
+                token,
+                &cur_text,
+                &fixed,
+                Reason::Fixed,
+                now_ms,
+                &alt_text,
+                cur_score,
+                alt_score,
             );
         }
 
@@ -455,9 +530,10 @@ impl Engine {
         if word.is_empty() {
             return false;
         }
-        // Слова с дефисом сравниваем по частям (частицы «что-то», «кем-то»).
-        if word.contains('-') {
-            let parts: Vec<&str> = word.split('-').filter(|p| !p.is_empty()).collect();
+        // Слова с дефисом/пробелом сравниваем по частям
+        // (частицы «что-то», «кем бы»).
+        if word.contains('-') || word.contains(' ') {
+            let parts: Vec<&str> = word.split(['-', ' ']).filter(|p| !p.is_empty()).collect();
             return !parts.is_empty() && parts.iter().all(|p| self.valid_simple(p, lang));
         }
         self.valid_simple(word, lang)
@@ -480,6 +556,166 @@ impl Engine {
         false
     }
 
+    /// Маскировка — только на выводе (раздел 5 ТЗ): анализ шел
+    /// по немаскированному тексту.
+    fn mask_output(&self, text: &str, now_ms: u64) -> String {
+        if self.config.masking_enabled {
+            let masks = crate::rules::masking::MaskPairs::builtin();
+            let mut rng = crate::rules::masking::SmallRng::new(0x5EED_0000 ^ now_ms);
+            crate::rules::masking::mask(
+                text,
+                &masks,
+                self.config.masking_direction,
+                self.config.masking_intensity,
+                &mut rng,
+            )
+        } else {
+            text.to_string()
+        }
+    }
+
+    /// Однозначная ё-замена при включённом флаге.
+    fn yo_stage(&self, lang: Lang, text: &str) -> Option<String> {
+        if !self.config.yo_fixer || lang != Lang::Ru {
+            return None;
+        }
+        crate::rules::yo::fix_word(text, &self.yo_pairs)
+    }
+
+    /// Этап «фокусы → опечатки» для текста без переключения раскладки.
+    /// Ёфикатор НЕ здесь: он применяется и к валидным словам.
+    fn fixes_stage(&self, lang: Lang, text: &str) -> Option<String> {
+        // (в) «ДВе заглавные» → «Две» — для обоих языков.
+        if self.config.typos_fix {
+            if let Some(out) = crate::rules::typos::fix_double_capital(text) {
+                if self.valid(&out, lang) {
+                    return Some(out);
+                }
+            }
+        }
+        if lang == Lang::Ru {
+            if let Some(out) = self.tricks_stage_ru(text) {
+                return Some(out);
+            }
+        }
+        // (б) перестановка/пропуск/удвоение — ровно один словарный кандидат.
+        if self.config.typos_fix {
+            if let Some(out) = crate::rules::typos::typo_candidates(text, |c| self.valid(c, lang)) {
+                return Some(out);
+            }
+        }
+        None
+    }
+
+    /// Фокусы Карамбы 2–7 (только кириллица). Валидность базовой части
+    /// («исходный токен не словарный, база — словарная») проверяет движок.
+    fn tricks_stage_ru(&self, text: &str) -> Option<String> {
+        // 2: привет1 → привет!
+        if self.config.trick_unit_sign {
+            if let Some(out) = crate::rules::tricks::trick_unit_sign(text) {
+                let base = &out[..out.len() - 1];
+                if self.valid(base, Lang::Ru) {
+                    return Some(out);
+                }
+            }
+        }
+        // 3: слипшиеся слова (регистрозависимо).
+        if self.config.trick_stuck_words {
+            if let Some((a, b)) = crate::rules::tricks::trick_stuck_words(text) {
+                // Часть из одной буквы («Ё») — не слепленное слово,
+                // это фокус 6.
+                if a.chars().count() >= 2
+                    && b.chars().count() >= 2
+                    && self.valid(&a, Lang::Ru)
+                    && self.valid(&b, Lang::Ru)
+                {
+                    return Some(format!("{a} {b}"));
+                }
+            }
+        }
+        // 4а: 9слово → (слово.
+        if self.config.trick_brackets {
+            if let Some(out) = crate::rules::tricks::trick_bracket_open(text) {
+                let rest = &out['('.len_utf8()..];
+                if self.valid(rest, Lang::Ru) {
+                    return Some(out);
+                }
+            }
+        }
+        // 4б: слово0 → слово) при незакрытой скобке.
+        if self.config.trick_brackets && self.open_brackets > 0 {
+            if let Some(out) =
+                crate::rules::tricks::trick_bracket_close(text, self.open_brackets as usize)
+            {
+                let base = &out[..out.len() - ')'.len_utf8()];
+                // База может начинаться с уже набранной «(» — сравниваем
+                // по словарной части.
+                let word = base.trim_matches(|c| classify(c) != CharClass::Cyrillic);
+                if self.valid(word, Lang::Ru) {
+                    return Some(out);
+                }
+            }
+        }
+        // 5: пирогб → пирог,, рубю → руб.
+        if self.config.trick_trailing_signs {
+            if let Some(out) = crate::rules::tricks::trick_trailing_signs(text) {
+                let base = &out[..out.len() - 1];
+                if self.valid(base, Lang::Ru) {
+                    return Some(out);
+                }
+            }
+        }
+        // 6: хочуЁ → хочу!
+        if self.config.trick_cap_excl {
+            if let Some(out) = crate::rules::tricks::trick_cap_excl(text) {
+                let base = &out[..out.len() - 1];
+                if self.valid(base, Lang::Ru) {
+                    return Some(out);
+                }
+            }
+        }
+        // 7: частицы (чтото → что-то, кембы → кем бы).
+        if self.config.trick_particles {
+            for cand in crate::rules::tricks::trick_particles(text) {
+                if self.valid(&cand, Lang::Ru) {
+                    return Some(cand);
+                }
+            }
+        }
+        None
+    }
+
+    /// Решение «заменить текст без смены раскладки» (фокусы/опечатки/ё).
+    #[allow(clippy::too_many_arguments)]
+    fn replace_fixed(
+        &mut self,
+        token: &Token,
+        cur_text: &str,
+        fixed: &str,
+        reason: Reason,
+        now_ms: u64,
+        alt_text: &str,
+        cur_score: f64,
+        alt_score: f64,
+    ) -> Decision {
+        let masked = self.mask_output(fixed, now_ms);
+        let layout_id = self.pair.by_lang(self.current_lang).id.clone();
+        let actions = vec![Action::Replace {
+            backspaces: cur_text.chars().count(),
+            text: masked.clone(),
+        }];
+        self.undo.push(UndoRecord {
+            presses: token.presses.clone(),
+            before: cur_text.to_string(),
+            after: masked.clone(),
+            after_len: masked.chars().count(),
+            prev_layout: layout_id.clone(),
+            new_layout: layout_id,
+            at_ms: now_ms,
+        });
+        self.result(actions, reason, cur_text, alt_text, cur_score, alt_score)
+    }
+
     /// Конвертация: действия, undo-запись, смена внутреннего представления.
     #[allow(clippy::too_many_arguments)]
     fn convert(
@@ -494,20 +730,12 @@ impl Engine {
     ) -> Decision {
         let other_id = self.pair.by_lang(other_lang).id.clone();
         let cur_id = self.pair.by_lang(self.current_lang).id.clone();
+        // Ёфикатор применяется к сконвертированному русскому слову.
+        let yo_fixed = self
+            .yo_stage(other_lang, alt_text)
+            .unwrap_or_else(|| alt_text.to_string());
         // Маскировка — только на выводе; анализ шел по немаскированному тексту.
-        let final_text = if self.config.masking_enabled {
-            let masks = MaskPairs::builtin();
-            let mut rng = crate::rules::masking::SmallRng::new(0x5EED_0000 ^ now_ms);
-            mask(
-                alt_text,
-                &masks,
-                MaskDirection::RuToLat,
-                self.config.masking_intensity,
-                &mut rng,
-            )
-        } else {
-            alt_text.to_string()
-        };
+        let final_text = self.mask_output(&yo_fixed, now_ms);
         let actions = vec![
             Action::Replace {
                 backspaces: cur_text.chars().count(),
@@ -569,15 +797,6 @@ fn threshold_for(len: usize) -> f64 {
     }
 }
 
-/// Слово-«ядро»: обрезаем краевые знаки (не цифры) для словаря.
-fn core_word(text: &str, lang: Lang) -> &str {
-    let is_letter = |c: char| match lang {
-        Lang::En => classify(c) == CharClass::Latin,
-        Lang::Ru => classify(c) == CharClass::Cyrillic,
-    };
-    text.trim_matches(|c: char| !is_letter(c))
-}
-
 /// Технический токен: цифры/символы, URL/email, camelCase/snake_case.
 fn is_tech_token(text: &str) -> bool {
     if text.is_empty() {
@@ -606,10 +825,13 @@ fn is_tech_token(text: &str) -> bool {
 }
 
 fn has_camel_or_snake(text: &str) -> bool {
+    // Стена регистров — только для латиницы: кириллические заглавные
+    // внутри слова («сонатуБаха») — это фокус 3, а не camelCase.
+    let latin = |c: char| classify(c) == CharClass::Latin;
     let chars: Vec<char> = text.chars().collect();
     let wall = chars
         .windows(2)
-        .any(|w| w[0].is_lowercase() && w[1].is_uppercase());
+        .any(|w| latin(w[0]) && latin(w[1]) && w[0].is_lowercase() && w[1].is_uppercase());
     (chars.contains(&'_') && chars.len() > 2) || wall
 }
 

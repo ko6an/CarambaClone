@@ -7,8 +7,9 @@ use super::ffi;
 use super::typing;
 use caramba_core::engine::{Action, Event};
 use caramba_core::layouts::Pair;
+use caramba_core::rules::masking::{try_replace, MaskDirection, MaskPairs};
 use parking_lot::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -39,7 +40,18 @@ pub struct TapShared {
     pub option_start: Mutex<Option<Instant>>,
     /// Мач-порт тапа — включение заново из сторожевого потока.
     pub tap_port: Mutex<Option<PortPtr>>,
+    /// Режим «Маскировка» включён (меню/хоткей ⌃⌥M).
+    pub masking: AtomicBool,
+    /// Интенсивность маскировки 10–100.
+    pub masking_intensity: AtomicU8,
+    /// Язык текущей раскладки: 0 — неизвестен, 1 — EN, 2 — RU.
+    pub current_lang: AtomicU8,
 }
+
+/// Признак «маскировка активна в тапе» (для внешних модулей).
+pub const LANG_UNKNOWN: u8 = 0;
+pub const LANG_EN: u8 = 1;
+pub const LANG_RU: u8 = 2;
 
 static SHARED: OnceLock<Arc<TapShared>> = OnceLock::new();
 
@@ -67,6 +79,9 @@ pub fn start(enabled: bool, autoswitch: bool, dry_run: bool) -> Result<(), Strin
             last_tap_ms: Mutex::new(None),
             option_start: Mutex::new(None),
             tap_port: Mutex::new(None),
+            masking: AtomicBool::new(false),
+            masking_intensity: AtomicU8::new(50),
+            current_lang: AtomicU8::new(LANG_UNKNOWN),
         })
     });
 
@@ -133,6 +148,33 @@ pub fn set_autoswitch(on: bool) {
 /// Обновить режим dry-run.
 pub fn set_dry_run(on: bool) {
     *shared().dry_run.lock() = on;
+}
+
+/// Включить/выключить «Маскировку» в тапе.
+pub fn set_masking(on: bool) {
+    shared().masking.store(on, Ordering::SeqCst);
+    tracing::info!(on, "маскировка включена/выключена");
+}
+
+/// Обновить интенсивность маскировки.
+pub fn set_masking_intensity(v: u8) {
+    shared()
+        .masking_intensity
+        .store(v.clamp(10, 100), Ordering::SeqCst);
+}
+
+/// Синхронизировать язык раскладки в тапе (из layout_notifier).
+pub fn set_current_lang(code: u8) {
+    shared().current_lang.store(code, Ordering::SeqCst);
+}
+
+/// Колбэк переключения маскировки из хоткея (ставит главный поток).
+type MaskingToggleFn = Box<dyn Fn(bool) + Send>;
+static MASKING_TOGGLE: Mutex<Option<MaskingToggleFn>> = Mutex::new(None);
+
+/// Установить обработчик переключения маскировки (меню/иконка/конфиг).
+pub fn set_masking_toggle(f: Box<dyn Fn(bool) + Send>) {
+    *MASKING_TOGGLE.lock() = Some(f);
 }
 
 // MARK: — Обратный вызов тапа
@@ -231,6 +273,38 @@ fn handle_key_down(sh: &Arc<TapShared>, event: ffi::CGEventRef) -> ffi::CGEventR
         return undo_last();
     }
 
+    // Хоткей маскировки: ⌃⌥M (0x2E), без Shift и Command.
+    if keycode == 0x2E
+        && flags & (ffi::K_CG_EVENT_FLAG_MASK_CONTROL | ffi::K_CG_EVENT_FLAG_MASK_OPTION) != 0
+        && !shift
+        && flags & ffi::K_CG_EVENT_FLAG_MASK_COMMAND == 0
+        && !repeat
+    {
+        let on = !sh.masking.load(Ordering::SeqCst);
+        if let Some(f) = MASKING_TOGGLE.lock().as_ref() {
+            f(on);
+        }
+        return std::ptr::null_mut();
+    }
+
+    // Маскировка: подмена Unicode-строки прямо в событии (раздел 5 ТЗ).
+    if sh.masking.load(Ordering::SeqCst)
+        && !repeat
+        && sh.current_lang.load(Ordering::SeqCst) == LANG_RU
+        && flags & (ffi::K_CG_EVENT_FLAG_MASK_CONTROL | ffi::K_CG_EVENT_FLAG_MASK_COMMAND) == 0
+    {
+        if let Some(replacement) = mask_substitute(sh, keycode, shift, caps) {
+            let mut units = [0u16; 2];
+            replacement.encode_utf16(&mut units);
+            // SAFETY: строка живёт до конца вызова; поле события — Unicode.
+            unsafe {
+                let len = replacement.len_utf16();
+                ffi::CGEventKeyboardSetUnicodeString(event, len, units.as_ptr());
+            }
+            tracing::trace!(keycode, replacement = %replacement, "маскировка: буква-двойник");
+        }
+    }
+
     // Основной путь: движок принимает реальное нажатие.
     let mut engine = engine_state::lock().lock();
     let mut actions = engine.on_event(
@@ -260,6 +334,48 @@ fn handle_key_down(sh: &Arc<TapShared>, event: ffi::CGEventRef) -> ffi::CGEventR
     } else {
         event
     }
+}
+
+/// Пары двойников (вшитая таблица `resources/masking/pairs.toml`).
+fn mask_pairs() -> &'static MaskPairs {
+    static ONCE: OnceLock<MaskPairs> = OnceLock::new();
+    ONCE.get_or_init(MaskPairs::builtin)
+}
+
+/// Простое ГПСЧ для «какие буквы заменить случайно на лету».
+struct MaskRng(u64);
+
+impl MaskRng {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+}
+
+/// Подменяемый символ для текущего нажатия, если он есть в таблице пар.
+fn mask_substitute(sh: &Arc<TapShared>, keycode: u16, shift: bool, caps: bool) -> Option<char> {
+    // Caps Lock не маскируем — регистр нестандартный.
+    if caps {
+        return None;
+    }
+    let engine = engine_state::lock().lock();
+    let sym = engine
+        .pair()
+        .by_lang(caramba_core::layouts::Lang::Ru)
+        .symbol(keycode, shift)?;
+    let mut chars = sym.chars();
+    let c = chars.next()?;
+    if chars.next().is_some() {
+        return None; // многозначные строки не подменяем
+    }
+    drop(engine);
+    let intensity = sh.masking_intensity.load(Ordering::SeqCst) as u64;
+    let mut rng = MaskRng(0x000C_6ABB_ABA1 ^ (now_ms() << 3) ^ (keycode as u64));
+    let pairs = mask_pairs();
+    // Направление всегда ru_to_lat: маскируем только в русской раскладке.
+    try_replace(pairs, MaskDirection::RuToLat, c).filter(|_| rng.next() % 100 < intensity)
 }
 
 /// Исполнение решений движка.

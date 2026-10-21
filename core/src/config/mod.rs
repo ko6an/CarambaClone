@@ -6,6 +6,8 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::rules::masking::MaskDirection;
+
 /// Текущая версия схемы конфигурации.
 pub const SCHEMA_VERSION: u32 = 1;
 
@@ -52,6 +54,28 @@ pub struct Config {
     pub smart_backspace_undo: bool,
     /// Ёфикатор (по умолчанию выключен).
     pub yo_fixer: bool,
+    /// Автоисправление опечаток: перестановка/пропуск/удвоение буквы.
+    pub typos_fix: bool,
+    /// Фокус 2: единица вместо «!» после слова (привет1 → привет!).
+    pub trick_unit_sign: bool,
+    /// Фокус 3: слипшиеся слова (сонатуБаха → сонату Баха).
+    pub trick_stuck_words: bool,
+    /// Фокус 4: скобки без Shift (9 → «(», 0 → «)»).
+    pub trick_brackets: bool,
+    /// Фокус 5: знак из английской раскладки в конце (б → «,», ю → «.»).
+    pub trick_trailing_signs: bool,
+    /// Фокус 6: «Ё» в конце слова → «!» (хочуЁ → хочу!).
+    pub trick_cap_excl: bool,
+    /// Фокус 7: частицы (чтото → что-то, кембы → кем бы).
+    pub trick_particles: bool,
+    /// Состояние «Маскировки» (пункт меню / хоткей ⌃⌥M).
+    pub masking_on: bool,
+    /// Запоминать состояние «Маскировки» между запусками.
+    pub masking_remember: bool,
+    /// Интенсивность маскировки: доля заменяемых букв 10–100.
+    pub masking_intensity: u8,
+    /// Направление маскировки.
+    pub masking_direction: MaskDirection,
     /// Игнорировать слова с цифрами и символами.
     pub ignore_digits_symbols: bool,
     /// Автозапуск при входе.
@@ -60,6 +84,10 @@ pub struct Config {
     pub rules_autoupdate: bool,
     /// Режим --dry-run: решения печатаются в журнал, ничего не печатает.
     pub dry_run: bool,
+}
+
+fn clamp_intensity(v: u8) -> u8 {
+    v.clamp(10, 100)
 }
 
 impl Default for Config {
@@ -74,6 +102,17 @@ impl Default for Config {
             fix_on_enter: false,
             smart_backspace_undo: true,
             yo_fixer: false,
+            typos_fix: true,
+            trick_unit_sign: true,
+            trick_stuck_words: true,
+            trick_brackets: true,
+            trick_trailing_signs: true,
+            trick_cap_excl: true,
+            trick_particles: true,
+            masking_on: false,
+            masking_remember: false,
+            masking_intensity: 50,
+            masking_direction: MaskDirection::default(),
             ignore_digits_symbols: true,
             autostart: false,
             rules_autoupdate: true,
@@ -86,6 +125,12 @@ impl Default for Config {
 pub fn migrate(mut cfg: Config) -> Config {
     if cfg.schema_version < 1 {
         cfg.schema_version = 1;
+    }
+    // Интервал интенсивности — 10..=100.
+    cfg.masking_intensity = clamp_intensity(cfg.masking_intensity);
+    // Без «Запоминать» маскировка всегда выключена при старте.
+    if !cfg.masking_remember {
+        cfg.masking_on = false;
     }
     cfg
 }
@@ -159,5 +204,35 @@ mod tests {
         let cfg = load(&p);
         assert!(cfg.enabled);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// FR: маскировка не сохраняется между запусками, пока не включено
+    /// «Запоминать»; интенсивность зажимается в 10..=100.
+    #[test]
+    fn маскировка_миграции() {
+        let cfg = Config {
+            masking_on: true,
+            masking_remember: false,
+            masking_intensity: 5,
+            schema_version: 1,
+            ..Config::default()
+        };
+        let cfg = migrate(cfg);
+        assert!(!cfg.masking_on, "без «Запоминать» маскировка сбрасывается");
+        assert_eq!(cfg.masking_intensity, 10);
+
+        let ctx = Config {
+            masking_on: true,
+            masking_remember: true,
+            masking_intensity: 200,
+            ..cfg
+        };
+        let cfg = migrate(ctx);
+        assert_eq!(cfg.masking_intensity, 100);
+        assert!(cfg.masking_on);
+
+        // Рound-trip пары «from/to» направления.
+        let body = toml::to_string(&cfg).unwrap();
+        assert!(body.contains("masking_direction"));
     }
 }

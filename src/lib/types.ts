@@ -11,6 +11,17 @@ export interface Config {
   fix_on_enter: boolean;
   smart_backspace_undo: boolean;
   yo_fixer: boolean;
+  typos_fix: boolean;
+  trick_unit_sign: boolean;
+  trick_stuck_words: boolean;
+  trick_brackets: boolean;
+  trick_trailing_signs: boolean;
+  trick_cap_excl: boolean;
+  trick_particles: boolean;
+  masking_on: boolean;
+  masking_remember: boolean;
+  masking_intensity: number;
+  masking_direction: "ru_to_lat" | "lat_to_ru";
   ignore_digits_symbols: boolean;
   autostart: boolean;
   rules_autoupdate: boolean;

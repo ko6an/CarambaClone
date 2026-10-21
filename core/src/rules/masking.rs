@@ -107,8 +107,8 @@ pub fn mask(
     out
 }
 
-/// Поиск двойника одного символа.
-fn try_replace(pairs: &MaskPairs, dir: MaskDirection, c: char) -> Option<char> {
+/// Поиск двойника одного символа (используется и тапом на лету).
+pub fn try_replace(pairs: &MaskPairs, dir: MaskDirection, c: char) -> Option<char> {
     for p in &pairs.pairs {
         if !p.enabled {
             continue;

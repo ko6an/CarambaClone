@@ -175,3 +175,176 @@ fn таблица_приёмки_secure_input_через_события() {
     assert_eq!(d.reason, caramba_core::engine::Reason::PairValid);
     // Платформе достаточно не вызывать evaluate — текст не меняется.
 }
+
+/// Раздел 13: `привет1␣` (RU) → `привет!` (фокус 2).
+#[test]
+fn таблица_приёмки_привет1() {
+    let mut e = Engine::new();
+    let actions = play(&mut e, "привет1", &builtin_pair().ru);
+    assert_eq!(
+        actions,
+        vec![Action::Replace {
+            backspaces: 7,
+            text: "привет!".into()
+        }]
+    );
+}
+
+/// Раздел 13: `исполнили сонатуБаха␣` → слепленные слова разделены (фокус 3).
+#[test]
+fn таблица_приёмки_сонату_баха() {
+    let mut e = Engine::new();
+    let first = play(&mut e, "исполнили", &builtin_pair().ru);
+    assert!(first.is_empty(), "валидное слово не трогается");
+    let actions = play(&mut e, "сонатуБаха", &builtin_pair().ru);
+    assert_eq!(
+        actions,
+        vec![Action::Replace {
+            backspaces: 10,
+            text: "сонату Баха".into()
+        }]
+    );
+}
+
+/// Раздел 13: `9хорошо␣` → `(хорошо` (фокус 4а).
+#[test]
+fn таблица_приёмки_скобка_открывающая() {
+    let mut e = Engine::new();
+    let actions = play(&mut e, "9хорошо", &builtin_pair().ru);
+    assert_eq!(
+        actions,
+        vec![Action::Replace {
+            backspaces: 7,
+            text: "(хорошо".into()
+        }]
+    );
+}
+
+/// Раздел 13: `(хорошо0␣` → `(хорошо)` (фокус 4б, скобка была открыта).
+#[test]
+fn таблица_приёмки_скобка_закрывающая() {
+    let mut e = Engine::new();
+    let actions = play(&mut e, "(хорошо0", &builtin_pair().ru);
+    assert_eq!(
+        actions,
+        vec![Action::Replace {
+            backspaces: 8,
+            text: "(хорошо)".into()
+        }]
+    );
+}
+
+/// Раздел 13: `пирогб␣` → `пирог,`, `рубю␣` → `руб.` (фокус 5).
+#[test]
+fn таблица_приёмки_знаки_в_конце() {
+    let mut e = Engine::new();
+    assert_eq!(
+        play(&mut e, "пирогб", &builtin_pair().ru),
+        vec![Action::Replace {
+            backspaces: 6,
+            text: "пирог,".into()
+        }]
+    );
+    assert_eq!(
+        play(&mut e, "рубю", &builtin_pair().ru),
+        vec![Action::Replace {
+            backspaces: 4,
+            text: "руб.".into()
+        }]
+    );
+}
+
+/// Раздел 13: `хочуЁ␣` → `хочу!` (фокус 6).
+#[test]
+fn таблица_приёмки_хочу_ё() {
+    let mut e = Engine::new();
+    let actions = play(&mut e, "хочуЁ", &builtin_pair().ru);
+    assert_eq!(
+        actions,
+        vec![Action::Replace {
+            backspaces: 5,
+            text: "хочу!".into()
+        }]
+    );
+}
+
+/// Раздел 13: частицы (фокус 7).
+#[test]
+fn таблица_приёмки_частицы() {
+    let mut e = Engine::new();
+    let ru = builtin_pair().ru;
+    for (typed, expected) in [
+        ("почемуто", "почему-то"),
+        ("чтото", "что-то"),
+        ("кембы", "кем бы"),
+        ("хорошобы", "хорошо бы"),
+    ] {
+        assert_eq!(
+            play(&mut e, typed, &ru),
+            vec![Action::Replace {
+                backspaces: typed.chars().count(),
+                text: expected.into()
+            }],
+            "фокус 7: {typed}"
+        );
+    }
+}
+
+/// FR-YO-1: ёфикатор заменяет «е» при включённом флаге; грязные
+/// неоднозначные слова («все») не трогаются.
+#[test]
+fn ёфикатор_однозначные_формы() {
+    use caramba_core::engine::EngineConfig;
+    let mut e = Engine::new();
+    let cfg = EngineConfig {
+        yo_fixer: true,
+        ..EngineConfig::default()
+    };
+    e.set_config(cfg);
+    let actions = play(&mut e, "еще", &builtin_pair().ru);
+    assert_eq!(
+        actions,
+        vec![Action::Replace {
+            backspaces: 3,
+            text: "ещё".into()
+        }]
+    );
+    let actions = play(&mut e, "все", &builtin_pair().ru);
+    assert!(actions.is_empty(), "неоднозначное «все» не меняется");
+}
+
+/// По умолчанию ёфикатор выключен — «еще» остаётся без изменений.
+#[test]
+fn ёфикатор_выключен_по_умолчанию() {
+    let mut e = Engine::new();
+    let actions = play(&mut e, "еще", &builtin_pair().ru);
+    assert!(actions.is_empty());
+}
+
+/// FR-TYPO-1(б): ровно один словарный кандидат «сова» из «своа».
+#[test]
+fn опечатка_перестановка() {
+    let mut e = Engine::new();
+    let actions = play(&mut e, "своа", &builtin_pair().ru);
+    assert_eq!(
+        actions,
+        vec![Action::Replace {
+            backspaces: 4,
+            text: "сова".into()
+        }]
+    );
+}
+
+/// Опечатки отключаются флагом.
+#[test]
+fn опечатки_отключены() {
+    use caramba_core::engine::EngineConfig;
+    let mut e = Engine::new();
+    let cfg = EngineConfig {
+        typos_fix: false,
+        ..EngineConfig::default()
+    };
+    e.set_config(cfg);
+    let actions = play(&mut e, "своа", &builtin_pair().ru);
+    assert!(actions.is_empty());
+}

@@ -29,6 +29,13 @@ extern "C" fn on_selected_input_changed() {
     }
     // Обновляем флаг в трее.
     tray::update_layout_flag(handle, &id);
+    // Маскировка живёт только в русской раскладке: синхронизируем тап.
+    let code = if id.contains("Russian") {
+        super::event_tap::LANG_RU
+    } else {
+        super::event_tap::LANG_EN
+    };
+    super::event_tap::set_current_lang(code);
 }
 
 /// Подписаться (на главном потоке, до запуска рун-лупа приложения).
