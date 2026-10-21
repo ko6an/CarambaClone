@@ -1,0 +1,20 @@
+{
+  "app.title": "CarambaClone",
+  "menu.enable": "Enable the app",
+  "menu.switch_layout": "Switch layout to …",
+  "menu.masking": "Masking",
+  "menu.pause": "Pause",
+  "menu.stats": "Fixed today / total",
+  "menu.permissions": "Set up permissions…",
+  "menu.settings": "Settings…",
+  "menu.restart": "Restart",
+  "menu.quit": "Quit",
+  "settings.title": "Settings",
+  "tab.general": "General",
+  "tab.fixes": "Fixes",
+  "tab.dictionary": "Dictionary",
+  "tab.apps": "Apps",
+  "tab.rules": "Rules",
+  "tab.hotkeys": "Hotkeys",
+  "tab.about": "About"
+}

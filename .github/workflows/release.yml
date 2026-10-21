@@ -1,0 +1,41 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Единственная сборка — macOS ARM64.
+      - name: tauri build (aarch64-apple-darwin)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "CarambaClone ${{ github.ref_name }}"
+          args: --target aarch64-apple-darwin
+      # Подпись ad-hoc применяется при сборке (signingIdentity: "-"); проверяем её.
+      - name: Проверка подписи
+        run: |
+          codesign --verify --deep --strict target/aarch64-apple-darwin/release/bundle/macos/*.app
+      - name: SHA256SUMS
+        run: |
+          cd target/aarch64-apple-darwin/release
+          find bundle -name '*.dmg' -o -name '*.app.zip' | xargs shasum -a 256 > SHA256SUMS
+          cat SHA256SUMS

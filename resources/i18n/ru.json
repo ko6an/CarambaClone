@@ -1,0 +1,20 @@
+{
+  "app.title": "CarambaClone",
+  "menu.enable": "Включить приложение",
+  "menu.switch_layout": "Сменить раскладку на …",
+  "menu.masking": "Маскировка",
+  "menu.pause": "Приостановить",
+  "menu.stats": "Исправлено сегодня / всего",
+  "menu.permissions": "Настроить разрешения…",
+  "menu.settings": "Настройки…",
+  "menu.restart": "Перезапустить",
+  "menu.quit": "Завершить",
+  "settings.title": "Настройки",
+  "tab.general": "Основные",
+  "tab.fixes": "Исправления",
+  "tab.dictionary": "Словарь",
+  "tab.apps": "Приложения",
+  "tab.rules": "Правила",
+  "tab.hotkeys": "Горячие клавиши",
+  "tab.about": "О программе"
+}
