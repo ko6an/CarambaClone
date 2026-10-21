@@ -5,7 +5,7 @@
 use caramba_core::layouts::builtin_pair;
 use tauri::{
     image::Image,
-    menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder},
+    menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
     tray::TrayIconBuilder,
     AppHandle, Manager,
 };
@@ -13,6 +13,13 @@ use tauri::{
 /// Пункты меню, по ним находим их в обработчике.
 pub const MENU_TOGGLE: &str = "toggle";
 pub const MENU_MASKING: &str = "masking";
+/// Подпункты паузы.
+pub const MENU_PAUSE_30M: &str = "pause_30m";
+pub const MENU_PAUSE_1H: &str = "pause_1h";
+pub const MENU_PAUSE_FOREVER: &str = "pause_forever";
+pub const MENU_PAUSE_CLEAR: &str = "pause_clear";
+/// Счётчик (неактивный информационный пункт).
+pub const MENU_STATS: &str = "stats";
 pub const MENU_SETTINGS: &str = "settings";
 pub const MENU_SWITCH_LAYOUT: &str = "switch_layout";
 pub const MENU_QUIT: &str = "quit";
@@ -30,12 +37,23 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         MenuItemBuilder::with_id(MENU_SWITCH_LAYOUT, "Сменить раскладку… / Switch layout…")
             .build(app)?;
     let settings = MenuItemBuilder::with_id(MENU_SETTINGS, "Настройки… / Settings…").build(app)?;
+    let stats = MenuItemBuilder::with_id(MENU_STATS, "Исправлено: 0 / 0")
+        .enabled(false)
+        .build(app)?;
+    let pause = SubmenuBuilder::new(app, "Приостановить")
+        .item(&MenuItemBuilder::with_id(MENU_PAUSE_30M, "На 30 минут").build(app)?)
+        .item(&MenuItemBuilder::with_id(MENU_PAUSE_1H, "На 1 час").build(app)?)
+        .item(&MenuItemBuilder::with_id(MENU_PAUSE_FOREVER, "До перезапуска").build(app)?)
+        .item(&MenuItemBuilder::with_id(MENU_PAUSE_CLEAR, "Продолжить").build(app)?)
+        .build()?;
     let quit = MenuItemBuilder::with_id(MENU_QUIT, "Завершить / Quit").build(app)?;
 
     let menu = MenuBuilder::new(app)
         .item(&toggle)
         .separator()
         .item(&masking)
+        .item(&pause)
+        .item(&stats)
         .separator()
         .item(&switch)
         .separator()
@@ -69,6 +87,20 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             MENU_SWITCH_LAYOUT => {
                 tracing::info!("menu: switch_layout");
             }
+            MENU_STATS => {}
+            MENU_PAUSE_30M => {
+                pause_items(app, crate::commands::pause_cmd(app.clone(), Some(30)));
+            }
+            MENU_PAUSE_1H => {
+                pause_items(app, crate::commands::pause_cmd(app.clone(), Some(60)));
+            }
+            MENU_PAUSE_FOREVER => {
+                pause_items(app, crate::commands::pause_cmd(app.clone(), None));
+            }
+            MENU_PAUSE_CLEAR => {
+                let _ = crate::commands::pause_clear_cmd(app.clone());
+                pause_items(app, Ok(()));
+            }
             MENU_SETTINGS => {
                 show_settings(app);
             }
@@ -80,6 +112,65 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         .build(app)?;
 
     Ok(())
+}
+
+static APP_HANDLE: std::sync::OnceLock<AppHandle> = std::sync::OnceLock::new();
+
+/// Запомнить AppHandle (для потоков workers).
+pub fn remember_app_handle(app: &AppHandle) {
+    let _ = APP_HANDLE.set(app.clone());
+}
+
+/// Обновить пункты меню из любого потока.
+pub fn update_menu_texts_threaded() {
+    if let Some(app) = APP_HANDLE.get() {
+        let _ = app.run_on_main_thread(move || {
+            update_menu_texts(app);
+        });
+    }
+}
+
+/// Меню-обработчики паузы. Обновление строки с оставшимся временем
+pub fn pause_items(_app: &AppHandle, _result: Result<(), String>) {
+    // Текст обновляет поток workers (update_menu_texts).
+}
+
+/// Периодическое обновление пунктов меню (вызывает workers).
+pub fn update_menu_texts(app: &AppHandle) {
+    let Some(menu) = app.menu() else { return };
+    // Счётчик исправлений (FR-SYS-3).
+    let (today, total) = crate::commands::stats_numeric();
+    if let Some(tauri::menu::MenuItemKind::MenuItem(m)) = menu.get(MENU_STATS) {
+        let _ = m.set_text(format!("Исправлено: {today} / {total}"));
+    }
+    // Пауза: оставшееся время в пункте «Продолжить».
+    if let Some(tauri::menu::MenuItemKind::MenuItem(m)) = menu.get(MENU_PAUSE_CLEAR) {
+        #[cfg(target_os = "macos")]
+        {
+            let text = match crate::platform::macos::event_tap::pause_left_ms() {
+                Some(ms) => {
+                    let mins = ms / 60_000;
+                    if mins > 0 {
+                        format!("Продолжить (осталось {mins} мин)")
+                    } else {
+                        format!("Продолжить ({} с)", ms / 1000)
+                    }
+                }
+                None => "Продолжить".into(),
+            };
+            let _ = m.set_text(text);
+        }
+    }
+    // Иконка паузы (⏸) у трея на время паузы.
+    #[cfg(target_os = "macos")]
+    {
+        let paused = crate::platform::macos::event_tap::is_paused();
+        if let Some(tray_on) = app.tray_by_id("main-tray") {
+            if paused {
+                let _ = tray_on.set_title(Some(String::from("⏸")));
+            }
+        }
+    }
 }
 
 /// Индикатор «Маскировки»: силуэт-маска вместо обычной иконки,

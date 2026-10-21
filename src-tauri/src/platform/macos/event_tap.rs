@@ -5,11 +5,11 @@
 use super::engine_state;
 use super::ffi;
 use super::typing;
-use caramba_core::engine::{Action, Event};
+use caramba_core::engine::{Action, Event, SoundKind};
 use caramba_core::layouts::Pair;
 use caramba_core::rules::masking::{try_replace, MaskDirection, MaskPairs};
 use parking_lot::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -46,12 +46,27 @@ pub struct TapShared {
     pub masking_intensity: AtomicU8,
     /// Язык текущей раскладки: 0 — неизвестен, 1 — EN, 2 — RU.
     pub current_lang: AtomicU8,
+    /// Режим приложения: 0 — Off, 1 — ManualOnly, 2 — Auto.
+    pub app_mode: AtomicU8,
+    /// Пауза до этого момента (unix-ms); None — не пауза.
+    pub paused_until_ms: Mutex<Option<u64>>,
+    /// Исправлено сегодня (счётчик полезных автокоррекций).
+    pub stats_today: AtomicU32,
+    /// Исправлено всего (счётчик).
+    pub stats_total: AtomicU32,
+    /// Число откатов слова (самообучение FR-EXC-2): word -> счётчик.
+    pub revert_counts: Mutex<std::collections::HashMap<String, u32>>,
 }
 
 /// Признак «маскировка активна в тапе» (для внешних модулей).
 pub const LANG_UNKNOWN: u8 = 0;
 pub const LANG_EN: u8 = 1;
 pub const LANG_RU: u8 = 2;
+
+/// Режим приложения (FR-EXC-3).
+pub const APP_MODE_OFF: u8 = 0;
+pub const APP_MODE_MANUAL_ONLY: u8 = 1;
+pub const APP_MODE_AUTO: u8 = 2;
 
 static SHARED: OnceLock<Arc<TapShared>> = OnceLock::new();
 
@@ -82,6 +97,11 @@ pub fn start(enabled: bool, autoswitch: bool, dry_run: bool) -> Result<(), Strin
             masking: AtomicBool::new(false),
             masking_intensity: AtomicU8::new(50),
             current_lang: AtomicU8::new(LANG_UNKNOWN),
+            app_mode: AtomicU8::new(APP_MODE_AUTO),
+            paused_until_ms: Mutex::new(None),
+            stats_today: AtomicU32::new(0),
+            stats_total: AtomicU32::new(0),
+            revert_counts: Mutex::new(std::collections::HashMap::new()),
         })
     });
 
@@ -168,6 +188,74 @@ pub fn set_current_lang(code: u8) {
     shared().current_lang.store(code, Ordering::SeqCst);
 }
 
+/// Режим текущего приложения (из потока контекста).
+pub fn set_app_mode(mode: u8) {
+    shared().app_mode.store(mode, Ordering::SeqCst);
+}
+
+// MARK: — Пауза и счётчик (FR-SYS-3, меню «Приостановить»)
+
+/// Поставить паузу на `minutes` минут; None — до перезапуска.
+/// 0 — снять паузу.
+pub fn set_pause(minutes: Option<u64>) -> u64 {
+    let until = minutes.map(|m| now_ms() + m * 60_000);
+    let shown = until.unwrap_or(0);
+    *shared().paused_until_ms.lock() = if minutes.is_some() { until } else { None };
+    tracing::info!(minutes, "пауза");
+    shown
+}
+
+/// Снять паузу.
+pub fn clear_pause() {
+    *shared().paused_until_ms.lock() = None;
+    tracing::info!("пауза снята");
+}
+
+/// Активна ли пауза сейчас.
+pub fn is_paused() -> bool {
+    let sh = shared();
+    let guard = sh.paused_until_ms.lock();
+    match *guard {
+        Some(until) => now_ms() < until,
+        None => false,
+    }
+}
+
+/// Сколько осталось (мс), если пауза активна.
+pub fn pause_left_ms() -> Option<u64> {
+    is_paused().then(|| shared().paused_until_ms.lock().unwrap() - now_ms())
+}
+
+/// Прибавить исправление к счётчику «сегодня / всего».
+pub fn stats_add_fixed() {
+    shared().stats_today.fetch_add(1, Ordering::SeqCst);
+    shared().stats_total.fetch_add(1, Ordering::SeqCst);
+}
+
+/// Убрать исправление из счётчика (после отмены).
+pub fn stats_sub_fixed() {
+    shared()
+        .stats_today
+        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+            Some(v.saturating_sub(1))
+        })
+        .ok();
+    shared()
+        .stats_total
+        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| {
+            Some(v.saturating_sub(1))
+        })
+        .ok();
+}
+
+/// Прочитать счётчик.
+pub fn stats_get() -> (u32, u32) {
+    (
+        shared().stats_today.load(Ordering::SeqCst),
+        shared().stats_total.load(Ordering::SeqCst),
+    )
+}
+
 /// Колбэк переключения маскировки из хоткея (ставит главный поток).
 type MaskingToggleFn = Box<dyn Fn(bool) + Send>;
 static MASKING_TOGGLE: Mutex<Option<MaskingToggleFn>> = Mutex::new(None);
@@ -247,8 +335,16 @@ fn handle_key_down(sh: &Arc<TapShared>, event: ffi::CGEventRef) -> ffi::CGEventR
     let shift = flags & ffi::K_CG_EVENT_FLAG_MASK_SHIFT != 0;
     let caps = flags & ffi::K_CG_EVENT_FLAG_MASK_ALPHA_SHIFT != 0;
 
+    // Пауза: хоткеи ручной конвертации продолжают жить.
+    if is_paused() {
+        return event;
+    }
+
     // Приложение выключено или Secure Input активен — пропускаем всё.
-    if !sh.enabled.load(Ordering::SeqCst) || sh.secure.load(Ordering::SeqCst) {
+    if !sh.enabled.load(Ordering::SeqCst)
+        || sh.secure.load(Ordering::SeqCst)
+        || sh.app_mode.load(Ordering::SeqCst) == APP_MODE_OFF
+    {
         return event;
     }
 
@@ -317,7 +413,9 @@ fn handle_key_down(sh: &Arc<TapShared>, event: ffi::CGEventRef) -> ffi::CGEventR
         now_ms(),
     );
 
-    if !sh.autoswitch.load(Ordering::SeqCst) {
+    let no_auto = !sh.autoswitch.load(Ordering::SeqCst)
+        || sh.app_mode.load(Ordering::SeqCst) == APP_MODE_MANUAL_ONLY;
+    if no_auto {
         actions.retain(|a| !matches!(a, Action::Replace { .. } | Action::SwitchLayout { .. }));
     }
 
@@ -388,12 +486,25 @@ pub fn execute(actions: &[Action]) {
                     typing::post_backspaces(*backspaces);
                 }
                 typing::post_text(text);
+                if !text.is_empty() {
+                    stats_add_fixed();
+                }
             }
             Action::SwitchLayout { layout } => {
                 tracing::info!(%layout, "переключение раскладки");
                 let _ = super::input_source::select_by_id(layout);
             }
-            Action::Sound => {} // звук — в M5
+            Action::Sound(kind) => {
+                let (switch_file, fix_file, volume) = {
+                    let cfg = crate::commands::sound_config_snapshot();
+                    (cfg.0, cfg.1, cfg.2)
+                };
+                let (kind_name, file) = match kind {
+                    SoundKind::Switch => ("switch", switch_file.as_deref()),
+                    SoundKind::Fix => ("fix", fix_file.as_deref()),
+                };
+                super::sound::play(kind_name, file, volume);
+            }
             Action::Hint { text } => tracing::info!("подсказка: {text}"),
         }
     }
@@ -416,6 +527,28 @@ fn undo_last() -> ffi::CGEventRef {
     std::ptr::null_mut()
 }
 
+/// После успешного отката: декремент счётчика и самообучение
+/// (FR-EXC-2: два отката одного слова -> исключение).
+fn after_revert(engine: &mut caramba_core::engine::Engine, actions: &[Action]) {
+    stats_sub_fixed();
+    let Some(word) = engine.undo_log().last_reverted_word().map(str::to_owned) else {
+        return;
+    };
+    let sh = shared();
+    let count = {
+        let mut map = sh.revert_counts.lock();
+        let c = map.entry(word.clone()).or_insert(0);
+        *c += 1;
+        *c
+    };
+    if count >= 2 {
+        engine.exceptions_mut().insert(word.clone());
+        sh.revert_counts.lock().remove(&word);
+        tracing::info!(word = %word, "самообучение: слово в исключения");
+    }
+    let _ = actions;
+}
+
 /// Умный ⌫: Some(действия) — откат (⌫ поглощается), None — обычное поведение.
 fn smart_backspace() -> Option<Vec<Action>> {
     let mut engine = engine_state::lock().lock();
@@ -428,6 +561,7 @@ fn smart_backspace() -> Option<Vec<Action>> {
         None
     } else {
         tracing::info!("умный ⌫: откат конвертации");
+        after_revert(&mut engine, &actions);
         Some(actions)
     }
 }

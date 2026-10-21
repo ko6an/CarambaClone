@@ -46,8 +46,24 @@ pub struct Config {
     pub autoswitch: bool,
     /// Агрессивность автопереключения.
     pub aggressiveness: Aggressiveness,
-    /// Звук при автопереключении.
+    /// Звук при автопереключении раскладки.
     pub sound_on_switch: bool,
+    /// Звук при исправлении («фокус»/опечатка/ё).
+    pub sound_on_fix: bool,
+    /// Громкость встроенных звуков: 0.0–1.0.
+    pub sound_volume: f32,
+    /// Свой файл звука переключения (если задан — вместо встроенного).
+    pub sound_switch_file: Option<String>,
+    /// Свой файл звука исправления.
+    pub sound_fix_file: Option<String>,
+    /// Слова-исключения: никогда не исправляются.
+    pub exceptions: Vec<String>,
+    /// Профили приложений (FR-EXC-3).
+    pub app_profiles: Vec<AppProfile>,
+    /// Папка «Games» отключает автоматику в играх (FR-EXC-5).
+    pub games_folder_watch: bool,
+    /// Авто-исключение приложений с категорией Games (FR-EXC-5).
+    pub exclude_games_category: bool,
     /// Исправление по Enter (по умолчанию выключено).
     pub fix_on_enter: bool,
     /// Умная отмена по ⌫.
@@ -99,6 +115,14 @@ impl Default for Config {
             autoswitch: true,
             aggressiveness: Aggressiveness::default(),
             sound_on_switch: false,
+            sound_on_fix: false,
+            sound_volume: 0.7,
+            sound_switch_file: None,
+            sound_fix_file: None,
+            exceptions: start_list_exceptions(),
+            app_profiles: Vec::new(),
+            games_folder_watch: true,
+            exclude_games_category: true,
             fix_on_enter: false,
             smart_backspace_undo: true,
             yo_fixer: false,
@@ -119,6 +143,80 @@ impl Default for Config {
             dry_run: false,
         }
     }
+}
+
+/// Режим профиля приложения.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AppMode {
+    /// Движок выключен в приложении.
+    Off,
+    /// Хоткеи работают, автоматика нет.
+    ManualOnly,
+    /// Полный режим (как глобально).
+    #[default]
+    Auto,
+}
+
+/// Перекрытие функции в профиле: None — как глобально.
+pub type OverrideBool = Option<bool>;
+
+/// Профиль приложения (FR-EXC-3).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct AppProfile {
+    /// Bundle id (префикс поддерживается, например `com.jetbrains.*`).
+    pub bundle_id: String,
+    /// Режим движка в приложении.
+    pub mode: AppMode,
+    /// Политика раскладки при активации: none/en/ru/remember.
+    #[serde(default)]
+    pub layout_policy: String,
+    /// Переключатели функций; None = наследуем глобально.
+    #[serde(default)]
+    pub autoswitch: OverrideBool,
+    #[serde(default)]
+    pub typos_fix: OverrideBool,
+    #[serde(default)]
+    pub tricks: OverrideBool,
+    #[serde(default)]
+    pub yo_fixer: OverrideBool,
+    #[serde(default)]
+    pub masking: OverrideBool,
+    #[serde(default)]
+    pub sound: OverrideBool,
+}
+
+/// Стартовый список программ-исключений (FR-EXC-4); пакет «Правил»
+/// в M6 расширяет список.
+pub fn start_list_exceptions() -> Vec<String> {
+    vec![
+        "com.apple.Terminal".into(),
+        "com.googlecode.iterm2".into(),
+        "dev.warp.Warp-Stable".into(),
+        "net.kovidgoyal.kitty".into(),
+        "io.alacritty".into(),
+        "com.microsoft.VSCode".into(),
+        "com.github.VSCode".into(),
+        "com.apple.dt.Xcode".into(),
+        "dev.zed.Zed".into(),
+        "com.sublimetext.4".into(),
+        "com.sublimetext.3".into(),
+        "com.novaspringonrails.nova".into(),
+        "com.jetbrains PhpStorm".into(),
+        "com.jetbrains.intellij".into(),
+        "com.jetbrains.pycharm".into(),
+        "com.jetbrains.CLion".into(),
+        "com.jetbrains.rider".into(),
+        "com.jetbrains.datagrip".into(),
+        "com.jetbrains.appcode".into(),
+        "com.jetbrains.rustrover".into(),
+        "com.jetbrains.go".into(),
+        "com.jetbrains.WebStorm".into(),
+        "com.jetbrains.RubyMine".into(),
+        "com.jetbrains.DataSpell".into(),
+        "com.jetbrains.gateway".into(),
+        "com.apple.keychainaccess".into(),
+    ]
 }
 
 /// Миграции конфигурации от старых версий схемы.

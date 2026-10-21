@@ -11,6 +11,7 @@ static ENGINE: OnceLock<Mutex<Engine>> = OnceLock::new();
 
 /// Инициализация (при старте приложения).
 pub fn init(cfg: &Config) {
+    *APP_CFG.lock() = Some(cfg.clone());
     ENGINE.get_or_init(|| {
         let mut e = Engine::new();
         e.set_config(engine_config(cfg));
@@ -27,7 +28,35 @@ pub fn lock() -> &'static Mutex<Engine> {
 pub fn apply_config(cfg: &Config) {
     let mut engine = lock().lock();
     engine.set_config(engine_config(cfg));
+    *engine.exceptions_mut() = Exceptions::new(cfg.exceptions.clone());
     tracing::info!("конфигурация применена к движку");
+}
+
+/// Снимок звуковых настроек для тапа (файлы и громкость).
+pub fn config_snapshot() -> (Option<String>, Option<String>, f32) {
+    let cfg = config();
+    (cfg.sound_switch_file, cfg.sound_fix_file, cfg.sound_volume)
+}
+
+/// Текущий конфиг (клон).
+pub fn config() -> Config {
+    app_cfg()
+}
+
+static APP_CFG: Mutex<Option<Config>> = Mutex::new(None);
+
+/// Сохранить состояние актуальной конфигурации (старт + каждое применение).
+fn app_cfg() -> Config {
+    APP_CFG.lock().clone().unwrap_or_else(|| Config {
+        exceptions: caramba_core::config::start_list_exceptions(),
+        ..Config::default()
+    })
+}
+
+/// Применить готовый (слитый с профилем) EngineConfig.
+pub fn apply_engine_config_values(engine_cfg: EngineConfig) {
+    let mut engine = lock().lock();
+    engine.set_config(engine_cfg);
 }
 
 /// Преобразование настроек приложения в настройки движка.
@@ -51,12 +80,13 @@ pub fn engine_config(cfg: &Config) -> EngineConfig {
         trick_cap_excl: cfg.trick_cap_excl,
         trick_particles: cfg.trick_particles,
         yo_fixer: cfg.yo_fixer,
+        sound_on_switch: cfg.sound_on_switch,
+        sound_on_fix: cfg.sound_on_fix,
         undo_window_ms: 2000,
     }
 }
 
-/// Установить список исключений (настройки/пакеты Правил, M3).
-#[allow(dead_code)] // Подключается в M3 (профили приложений/правила).
+/// Установить список исключений (настройки/пакеты Правил).
 pub fn set_exceptions(words: Vec<String>) {
     let mut engine = lock().lock();
     *engine.exceptions_mut() = Exceptions::new(words);

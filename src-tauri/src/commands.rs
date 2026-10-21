@@ -4,6 +4,17 @@ use caramba_core::config::Config;
 use parking_lot::Mutex;
 use tauri::{Manager, State};
 
+/// Снимок настроек звука для тапа (файлы и громкость).
+pub fn sound_config_snapshot() -> (Option<String>, Option<String>, f32) {
+    #[cfg(target_os = "macos")]
+    {
+        let cfg = crate::platform::macos::engine_state::config_snapshot();
+        (cfg.0, cfg.1, cfg.2)
+    }
+    #[cfg(not(target_os = "macos"))]
+    (None, None, 0.7)
+}
+
 /// Состояние приложения в памяти.
 pub struct AppState {
     pub config: Mutex<Config>,
@@ -176,6 +187,206 @@ pub fn apply_masking(app: &tauri::AppHandle, on: bool) -> Result<(), String> {
         caramba_core::config::save_atomic(&path, &cfg).map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+// MARK: — Автозапуск (FR-SYS-5), пауза, счётчик
+
+/// Статус автозапуска: not_registered / requires_approval / enabled / not_found.
+#[derive(Clone, serde::Serialize)]
+pub struct AutostartStatus {
+    pub status: String,
+    pub registered: bool,
+}
+
+#[cfg(target_os = "macos")]
+fn sm_service() -> objc2::rc::Retained<objc2_service_management::SMAppService> {
+    unsafe { objc2_service_management::SMAppService::mainAppService() }
+}
+
+#[cfg(target_os = "macos")]
+fn sm_status_name(s: objc2_service_management::SMAppServiceStatus) -> String {
+    use objc2_service_management::SMAppServiceStatus;
+    if s == SMAppServiceStatus::Enabled {
+        "enabled".into()
+    } else if s == SMAppServiceStatus::RequiresApproval {
+        "requires_approval".into()
+    } else if s == SMAppServiceStatus::NotRegistered {
+        "not_registered".into()
+    } else if s == SMAppServiceStatus::NotFound {
+        "not_found".into()
+    } else {
+        format!("other({})", s.0)
+    }
+}
+
+/// Текущий статус автозапуска.
+#[tauri::command]
+pub fn autostart_status() -> AutostartStatus {
+    #[cfg(target_os = "macos")]
+    {
+        let svc = sm_service();
+        let st = unsafe { svc.status() };
+        AutostartStatus {
+            status: sm_status_name(st),
+            registered: st == objc2_service_management::SMAppServiceStatus::Enabled,
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    AutostartStatus {
+        status: "unsupported".into(),
+        registered: false,
+    }
+}
+
+/// Включить/выключить автозапуск.
+#[tauri::command]
+pub fn autostart_set(state: State<AppState>, on: bool) -> Result<(), String> {
+    state.config.lock().autostart = on;
+    #[cfg(target_os = "macos")]
+    {
+        let svc = sm_service();
+        if on {
+            // SAFETY: константа статуса системы.
+            let err = unsafe { svc.registerAndReturnError() };
+            if let Err(e) = err {
+                return Err(format!("SMAppService.register: {e:?}"));
+            }
+        } else {
+            let err = unsafe { svc.unregisterAndReturnError() };
+            if let Err(e) = err {
+                return Err(format!("SMAppService.unregister: {e:?}"));
+            }
+        }
+    }
+    save_config(state)?;
+    Ok(())
+}
+
+/// Сохранить конфиг на диск по текущему пути.
+fn save_config(state: State<AppState>) -> Result<(), String> {
+    let path = {
+        let mut guard = state.config_path.lock();
+        if guard.is_none() {
+            let base = dirs_app_support()?;
+            *guard = Some(base.join("config.toml"));
+        }
+        guard.clone().unwrap()
+    };
+    let cfg = state.config.lock().clone();
+    caramba_core::config::save_atomic(&path, &cfg).map_err(|e| e.to_string())
+}
+
+/// Пауза (меню/команда): minutes=None — до перезапуска.
+#[tauri::command]
+pub fn pause_cmd(app: tauri::AppHandle, minutes: Option<u64>) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = crate::platform::macos::event_tap::set_pause(minutes);
+    }
+    let _ = app;
+    Ok(())
+}
+
+/// Снять паузу.
+#[tauri::command]
+pub fn pause_clear_cmd(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    crate::platform::macos::event_tap::clear_pause();
+    let _ = app;
+    Ok(())
+}
+
+/// Числовой счётчик для обновления меню.
+pub fn stats_numeric() -> (u32, u32) {
+    #[cfg(target_os = "macos")]
+    return crate::platform::macos::event_tap::stats_get();
+    #[cfg(not(target_os = "macos"))]
+    (0, 0)
+}
+
+/// Счётчик исправлений (сегодня / всего).
+#[tauri::command]
+pub fn stats_cmd() -> (u32, u32) {
+    #[cfg(target_os = "macos")]
+    return crate::platform::macos::event_tap::stats_get();
+    #[cfg(not(target_os = "macos"))]
+    (0, 0)
+}
+
+/// Установить список слов-исключений (вкладка «Словарь»).
+#[tauri::command]
+pub fn exceptions_set_cmd(appstate: State<AppState>, words: Vec<String>) -> Result<(), String> {
+    appstate.config.lock().exceptions = words.clone();
+    #[cfg(target_os = "macos")]
+    crate::platform::macos::engine_state::set_exceptions(words);
+    save_config(appstate)?;
+    Ok(())
+}
+
+/// Установить профили приложений (вкладка «Приложения»).
+#[tauri::command]
+pub fn app_profiles_set_cmd(
+    state: State<AppState>,
+    profiles: Vec<caramba_core::config::AppProfile>,
+) -> Result<(), String> {
+    let mut cfg_g = state.config.lock();
+    cfg_g.app_profiles = profiles;
+    drop(cfg_g);
+    save_config(state)?;
+    Ok(())
+}
+
+/// Вернуть стартовый список исключений (FR-EXC-4 «Вернуть стандартный»).
+#[tauri::command]
+pub fn exceptions_default_cmd() -> Vec<String> {
+    caramba_core::config::start_list_exceptions()
+}
+
+/// Открыть папку Games (FR-EXC-5).
+#[tauri::command]
+pub fn open_games_folder() -> Result<(), String> {
+    let base = dirs_app_support()?;
+    let dir = base.join("Games");
+    let _ = std::fs::create_dir_all(&dir);
+    std::process::Command::new("open")
+        .arg(&dir)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Текущий язык интерфейса (для перерисовки вкладок).
+#[tauri::command]
+pub fn get_ui_lang(state: State<AppState>) -> String {
+    state.config.lock().ui_lang.clone()
+}
+
+/// Открыть журнал (Настройки → Диагностика, FR-SYS-7).
+#[tauri::command]
+pub fn open_log_cmd() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let path = {
+        let home = std::env::var("HOME").map_err(|_| "нет HOME".to_string())?;
+        std::path::PathBuf::from(home).join("Library/Logs/CarambaClone/debug.log")
+    };
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    Err("нет macOS".into())
+}
+
+/// Диагностика: подробный журнал на время (M5: toggle в конфиге).
+#[tauri::command]
+pub fn set_verbose_logging(state: State<AppState>, on: bool) -> Result<(), String> {
+    state.config.lock().dry_run = on;
+    let _ = on;
+    save_config(state)
 }
 
 /// Тумблер «Маскировки» (команда интерфейса).

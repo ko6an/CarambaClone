@@ -23,6 +23,8 @@ pub struct UndoRecord {
 #[derive(Debug, Default)]
 pub struct UndoLog {
     records: Vec<UndoRecord>,
+    /// Слово последнего отката (для самообучения FR-EXC-2).
+    last_reverted: Option<String>,
 }
 
 const CAPACITY: usize = 8;
@@ -64,6 +66,7 @@ impl UndoLog {
             None => return Vec::new(),
         };
         self.records.pop();
+        self.last_reverted = Some(rec.before.clone());
         vec![
             crate::engine::Action::Replace {
                 backspaces: rec.after_len,
@@ -78,6 +81,11 @@ impl UndoLog {
     /// Пуст ли журнал.
     pub fn is_empty(&self) -> bool {
         self.records.is_empty()
+    }
+
+    /// Слово, восстановленное последним откатом (FR-EXC-2).
+    pub fn last_reverted_word(&self) -> Option<&str> {
+        self.last_reverted.as_deref()
     }
 }
 

@@ -121,7 +121,19 @@ fn main() {
             commands::open_permissions_pane,
             commands::convert_current_word,
             commands::set_enabled_cmd,
-            commands::set_masking_cmd
+            commands::set_masking_cmd,
+            commands::pause_cmd,
+            commands::pause_clear_cmd,
+            commands::stats_cmd,
+            commands::autostart_status,
+            commands::autostart_set,
+            commands::exceptions_set_cmd,
+            commands::exceptions_default_cmd,
+            commands::app_profiles_set_cmd,
+            commands::open_log_cmd,
+            commands::open_games_folder,
+            commands::get_ui_lang,
+            commands::set_verbose_logging
         ])
         .setup(move |app| {
             // Нет значка в Dock (только строка меню).
@@ -163,6 +175,7 @@ fn main() {
             }
 
             tray::create_tray(app.handle())?;
+            tray::remember_app_handle(app.handle());
             Ok(())
         })
         .run(tauri::generate_context!())

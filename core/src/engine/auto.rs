@@ -44,10 +44,19 @@ pub enum Action {
     Replace { backspaces: usize, text: String },
     /// Переключить раскладку.
     SwitchLayout { layout: String },
-    /// Проиграть звук.
-    Sound,
+    /// Проиграть звук: смена раскладки или исправление.
+    Sound(SoundKind),
     /// Неприрывающая панель-подсказка.
     Hint { text: String },
+}
+
+/// Тип звука (FR-SND-1): два разных сигнала.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SoundKind {
+    /// Автопереключение раскладки.
+    Switch,
+    /// Исправление («фокус», опечатка, ё).
+    Fix,
 }
 
 /// Настройки движка, важные для решений.
@@ -81,6 +90,10 @@ pub struct EngineConfig {
     pub trick_particles: bool,
     /// Ёфикатор.
     pub yo_fixer: bool,
+    /// Звук при автопереключении раскладки.
+    pub sound_on_switch: bool,
+    /// Звук при исправлении («фокус»/опечатка/ё).
+    pub sound_on_fix: bool,
     /// Окно Smart Undo, мс.
     pub undo_window_ms: u64,
 }
@@ -102,6 +115,8 @@ impl Default for EngineConfig {
             trick_cap_excl: true,
             trick_particles: true,
             yo_fixer: false,
+            sound_on_switch: false,
+            sound_on_fix: false,
             undo_window_ms: 2000,
         }
     }
@@ -700,10 +715,18 @@ impl Engine {
     ) -> Decision {
         let masked = self.mask_output(fixed, now_ms);
         let layout_id = self.pair.by_lang(self.current_lang).id.clone();
-        let actions = vec![Action::Replace {
+        let sound = match reason {
+            Reason::YoFixed => self.config.sound_on_fix,
+            Reason::Fixed => self.config.sound_on_fix,
+            _ => false,
+        };
+        let mut actions = vec![Action::Replace {
             backspaces: cur_text.chars().count(),
             text: masked.clone(),
         }];
+        if sound {
+            actions.push(Action::Sound(SoundKind::Fix));
+        }
         self.undo.push(UndoRecord {
             presses: token.presses.clone(),
             before: cur_text.to_string(),
@@ -736,7 +759,7 @@ impl Engine {
             .unwrap_or_else(|| alt_text.to_string());
         // Маскировка — только на выводе; анализ шел по немаскированному тексту.
         let final_text = self.mask_output(&yo_fixed, now_ms);
-        let actions = vec![
+        let mut actions = vec![
             Action::Replace {
                 backspaces: cur_text.chars().count(),
                 text: final_text.clone(),
@@ -745,6 +768,9 @@ impl Engine {
                 layout: other_id.clone(),
             },
         ];
+        if self.config.sound_on_switch {
+            actions.push(Action::Sound(SoundKind::Switch));
+        }
         self.undo.push(UndoRecord {
             presses: token.presses.clone(),
             before: cur_text.to_string(),

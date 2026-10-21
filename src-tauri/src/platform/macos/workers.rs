@@ -1,7 +1,22 @@
-//! Наблюдатель Secure Input (опрос ≤ 4 Гц) и сторож тапа.
+//! Наблюдатели: Secure Input (≤ 4 Гц), сторож тапа, контекст
+//! приложения (профили FR-EXC-3/5) и папка Games.
 
-use super::{ax, engine_state, event_tap, ffi};
+use super::{ax, engine_state, event_tap, ffi, profiles, workspace};
+use caramba_core::engine::Event;
 use std::time::Duration;
+
+/// Применить профиль/перекрытия для приложения (смена активного окна).
+fn apply_app_context(bundle_id: &str) {
+    let cfg = engine_state::config();
+    let mode = profiles::mode_for(&cfg, bundle_id);
+    let engine_cfg = profiles::merged_engine_config(&cfg, bundle_id);
+    engine_state::apply_engine_config_values(engine_cfg);
+    event_tap::set_app_mode(match mode {
+        caramba_core::config::AppMode::Off => event_tap::APP_MODE_OFF,
+        caramba_core::config::AppMode::ManualOnly => event_tap::APP_MODE_MANUAL_ONLY,
+        caramba_core::config::AppMode::Auto => event_tap::APP_MODE_AUTO,
+    });
+}
 
 /// Запустить фоновые наблюдатели: Secure Input и сторож тапа.
 pub fn start() {
@@ -33,6 +48,49 @@ pub fn start() {
             }
         })
         .expect("поток secure");
+
+    // Контекст приложения: профили/игры, смена приложения.
+    std::thread::Builder::new()
+        .name("caramba-appctx".into())
+        .spawn(move || {
+            let mut current = String::new();
+            let mut tick = 0u64;
+            loop {
+                std::thread::sleep(Duration::from_millis(500));
+                let bundle = workspace::frontmost_bundle_id();
+                if bundle != current {
+                    current = bundle.clone();
+                    apply_app_context(&current);
+                    // Смена приложения: буфер сбросить (раздел 3.1).
+                    let mut engine = engine_state::lock().lock();
+                    engine.on_event(
+                        Event::AppChanged {
+                            bundle_id: current.clone(),
+                        },
+                        event_tap::now_ms(),
+                    );
+                }
+                tick += 1;
+                if tick.is_multiple_of(60) {
+                    // Пункты меню: счётчик и оставшееся время паузы.
+                    crate::tray::update_menu_texts_threaded();
+                }
+                if tick.is_multiple_of(10) {
+                    // Папка Games: поллинг ~1 раз в 5 с.
+                    profiles::poll_games();
+                    let games_hit = profiles::games_hit(&current);
+                    let mode = profiles::effective_mode_now(&current, games_hit);
+                    event_tap::set_app_mode(match mode {
+                        caramba_core::config::AppMode::Off => event_tap::APP_MODE_OFF,
+                        caramba_core::config::AppMode::ManualOnly => {
+                            event_tap::APP_MODE_MANUAL_ONLY
+                        }
+                        caramba_core::config::AppMode::Auto => event_tap::APP_MODE_AUTO,
+                    });
+                }
+            }
+        })
+        .expect("поток контекста приложений");
 
     // Сторож тапа: раз в секунду проверяем и включаем заново.
     let wd_sh = event_tap::shared();
