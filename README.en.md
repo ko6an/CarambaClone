@@ -42,6 +42,7 @@ Masking / Pause / stats / Settings). Reassignable hotkeys:
 
 - Single Shift — switch layout (optional).
 - Double Shift — undo the last auto-conversion.
+- ⌥ (tap) — undo the last conversion, or convert the current word.
 - ⌫ within 2 s after a correction — smart undo.
 - ⌥⇧R — convert the selected text.
 - ⌃⌥M — toggle Masking.

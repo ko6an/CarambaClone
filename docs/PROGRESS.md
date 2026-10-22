@@ -1,5 +1,17 @@
 # Прогресс работ
 
+## M7 Релиз v1.0.0 — подготовлено
+
+- Версии подняты: workspace 1.0.0, tauri.conf.json 1.0.0, package.json 1.0.0.
+- `docs/QA.md` — чеклист ручной проверки (раздел 13); README/README.en
+  дополнены (⌥-тап, раздел «Замены текста», ссылки на docs/).
+- THIRD_PARTY_NOTICES: звуки CC0 (генерация проекта), Anonymous PD,
+  FrequencyWords CC BY-SA 4.0.
+- Релизная сборка: `.github/workflows/release.yml` (тег `v*`,
+  aarch64-apple-darwin, ad-hoc подпись, DMG + SHA256SUMS) — из M0.
+- Тег `v1.0.0` создаётся владельцем; ручная проверка по docs/QA.md
+  выполняется пользователем (GUI-сценарии недоступны агенту).
+
 ## M6 «Правила» — код готов (локальная проверка)
 
 - **Формат пакета** (`core/src/rules/pack.rs`): контейнер
