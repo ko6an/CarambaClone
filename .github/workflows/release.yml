@@ -37,5 +37,10 @@ jobs:
       - name: SHA256SUMS
         run: |
           cd target/aarch64-apple-darwin/release
-          find bundle -name '*.dmg' -o -name '*.app.zip' | xargs shasum -a 256 > SHA256SUMS
+          find bundle \( -name '*.dmg' -o -name '*.app.zip' -o -name '*.tar.gz' \) \
+            -exec shasum -a 256 {} \; > SHA256SUMS
           cat SHA256SUMS
+          gh release upload "${{ github.ref_name }}" SHA256SUMS \
+            --repo "${{ github.repository }}" --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
