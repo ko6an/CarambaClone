@@ -171,6 +171,7 @@ extern "C" {
 extern "C" {
     pub static kTISPropertyInputSourceID: CFStringRef;
     pub static kTISPropertyInputSourceCategory: CFStringRef;
+    pub static kTISPropertyInputSourceLanguages: CFStringRef;
     pub static kTISCategoryKeyboardInputSource: CFStringRef;
     pub fn TISCreateInputSourceList(
         properties: CFDictionaryRef,

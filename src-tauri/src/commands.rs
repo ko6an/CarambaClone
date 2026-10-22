@@ -185,14 +185,30 @@ pub fn switch_layout_from_menu(app: &tauri::AppHandle) {
         } else {
             pair.ru.id.clone()
         };
-        if let Err(e) = input_source::select_by_id(&target) {
-            tracing::error!("меню: смена раскладки: {e}");
-            return;
-        }
+        // Сначала точный ID (US/Russian); если его нет в системе —
+        // запасной путь: первый источник с нужным языком.
+        let chosen = match input_source::select_by_id(&target) {
+            Ok(()) => target,
+            Err(e) => {
+                tracing::warn!("меню: точный источник не найден ({e}), ищу по языку");
+                let want = if current.contains("Russian") {
+                    "en"
+                } else {
+                    "ru"
+                };
+                match input_source::select_by_language(want) {
+                    Ok(id) => id,
+                    Err(e2) => {
+                        tracing::error!("меню: смена раскладки: {e2}");
+                        return;
+                    }
+                }
+            }
+        };
         // Флаг обновляется и по системному уведомлению; продублируем.
-        crate::tray::update_layout_flag(app, &target);
-        layout_notifier::sync_lang_now(&target);
-        tracing::info!("меню: раскладка → {target}");
+        crate::tray::update_layout_flag(app, &chosen);
+        layout_notifier::sync_lang_now(&chosen);
+        tracing::info!("меню: раскладка → {chosen}");
     }
 }
 

@@ -281,6 +281,14 @@ pub fn stats_get() -> (u32, u32) {
 type MaskingToggleFn = Box<dyn Fn(bool) + Send>;
 static MASKING_TOGGLE: Mutex<Option<MaskingToggleFn>> = Mutex::new(None);
 
+/// Счётчик событий, дошедших до колбэка (диагностика «жив ли тап»).
+static TAP_EVENTS_SEEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Прочитать и сбросить счётчик событий тапа (вызывает сторож).
+pub fn tap_events_drain() -> u64 {
+    TAP_EVENTS_SEEN.swap(0, std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Установить обработчик переключения маскировки (меню/иконка/конфиг).
 pub fn set_masking_toggle(f: Box<dyn Fn(bool) + Send>) {
     *MASKING_TOGGLE.lock() = Some(f);
@@ -298,6 +306,7 @@ extern "C" fn tap_callback(
         return event;
     };
     let sh = Arc::clone(sh);
+    TAP_EVENTS_SEEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
     if event_type == ffi::K_CG_EVENT_TAP_DISABLED_BY_TIMEOUT
         || event_type == ffi::K_CG_EVENT_TAP_DISABLED_BY_USER_INPUT

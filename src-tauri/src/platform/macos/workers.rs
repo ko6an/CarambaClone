@@ -96,18 +96,26 @@ pub fn start() {
     let wd_sh = event_tap::shared();
     std::thread::Builder::new()
         .name("caramba-watchdog".into())
-        .spawn(move || loop {
-            std::thread::sleep(Duration::from_millis(1000));
-            if let Some(port) = *wd_sh.tap_port.lock() {
-                let enabled = unsafe { ffi::CGEventTapIsEnabled(port.0) };
-                if !enabled {
-                    unsafe { ffi::CGEventTapEnable(port.0, true) };
-                    tracing::warn!("сторож: тап включён заново");
+        .spawn(move || {
+            let mut tick: u64 = 0;
+            loop {
+                std::thread::sleep(Duration::from_millis(1000));
+                tick += 1;
+                if tick.is_multiple_of(10) {
+                    let n = event_tap::tap_events_drain();
+                    tracing::info!("сторож: событий тапа за 10 с = {n}");
                 }
-            } else {
-                // Тап никогда не создался (нет разрешений на старте):
-                // повторяем попытку, пока не появится (FR-SYS-4 self-test).
-                let _ = event_tap::spawn_tap_thread();
+                if let Some(port) = *wd_sh.tap_port.lock() {
+                    let enabled = unsafe { ffi::CGEventTapIsEnabled(port.0) };
+                    if !enabled {
+                        unsafe { ffi::CGEventTapEnable(port.0, true) };
+                        tracing::warn!("сторож: тап включён заново");
+                    }
+                } else {
+                    // Тап никогда не создался (нет разрешений на старте):
+                    // повторяем попытку, пока не появится (FR-SYS-4 self-test).
+                    let _ = event_tap::spawn_tap_thread();
+                }
             }
         })
         .expect("поток сторожа");

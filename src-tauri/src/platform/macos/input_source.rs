@@ -39,6 +39,63 @@ pub fn current_input_source_id() -> String {
 
 /// Выбрать источник ввода по InputSourceID (вне трейта, вызывается и
 /// из потока тапа для действий SwitchLayout).
+/// Языки источника (первый элемент массива kTISPropertyInputSourceLanguages).
+fn source_primary_language(src: ffi::TISInputSourceRef) -> String {
+    unsafe {
+        // SAFETY: TISGetInputSourceProperty возвращает CFArrayRef языков.
+        let prop = ffi::TISGetInputSourceProperty(src, ffi::kTISPropertyInputSourceLanguages);
+        if prop.is_null() {
+            return String::new();
+        }
+        // SAFETY: возвращённый указатель — CFArrayRef (Get-правило).
+        let arr =
+            core_foundation::array::CFArray::<*const std::os::raw::c_void>::wrap_under_get_rule(
+                prop as *const _,
+            );
+        arr.iter()
+            .next()
+            .map(|p| {
+                // SAFETY: первый элемент массива — CFStringRef языка ("en", "ru").
+                CFString::wrap_under_get_rule(*p as CFStringRef).to_string()
+            })
+            .unwrap_or_default()
+    }
+}
+
+/// Выбрать первый источник с основным языком, начинающимся на prefix
+/// ("en", "ru"). Запасной путь, когда конкретный ID (US и т.п.) не найден.
+pub fn select_by_language(prefix: &str) -> Result<String, String> {
+    unsafe {
+        // SAFETY: TISCreateInputSourceList(false) — включённые источники.
+        let list = ffi::TISCreateInputSourceList(std::ptr::null(), false);
+        if list.is_null() {
+            return Err("TIS: список источников пуст".into());
+        }
+        let arr =
+            core_foundation::array::CFArray::<*const std::os::raw::c_void>::wrap_under_create_rule(
+                list as *const _,
+            );
+        for item in arr.iter() {
+            let src = *item as ffi::TISInputSourceRef;
+            let lang = source_primary_language(src);
+            if lang.starts_with(prefix) {
+                let prop = ffi::TISGetInputSourceProperty(src, ffi::kTISPropertyInputSourceID);
+                let id = if prop.is_null() {
+                    String::new()
+                } else {
+                    CFString::wrap_under_get_rule(prop as CFStringRef).to_string()
+                };
+                if ffi::TISSelectInputSource(src) == 0 {
+                    return Ok(id);
+                }
+            }
+        }
+        Err(format!("нет источника с языком {prefix}"))
+    }
+}
+
+/// Выбрать источник ввода по InputSourceID (вне трейта, вызывается и
+/// из потока тапа для действий SwitchLayout).
 pub fn select_by_id(id: &str) -> Result<(), String> {
     unsafe {
         // SAFETY: TISCreateInputSourceList — чистая функция; массив CF.
