@@ -10,7 +10,7 @@
 use caramba_core::rules::pack::{self, SignedPack};
 
 /// Репозиторий релизов (плейсхолдер владельца — D18, DECISIONS.md).
-pub const GITHUB_OWNER: &str = "GITHUB_OWNER";
+pub const GITHUB_OWNER: &str = "ko6an";
 pub const GITHUB_REPO: &str = "CarambaClone";
 pub const ASSET_NAME: &str = "rules-latest.pack";
 const CHECK_INTERVAL_SECS: u64 = 7 * 24 * 60 * 60;
