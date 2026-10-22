@@ -510,6 +510,12 @@ pub fn execute(actions: &[Action]) {
                 if !text.is_empty() {
                     stats_add_fixed();
                 }
+                // По ТЗ текст в журнал не пишется — только длина.
+                tracing::info!(
+                    backspaces = *backspaces,
+                    len = text.chars().count(),
+                    "замена выполнена"
+                );
             }
             Action::SwitchLayout { layout } => {
                 tracing::info!(%layout, "переключение раскладки");
