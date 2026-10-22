@@ -104,6 +104,10 @@ pub fn start() {
                     unsafe { ffi::CGEventTapEnable(port.0, true) };
                     tracing::warn!("сторож: тап включён заново");
                 }
+            } else {
+                // Тап никогда не создался (нет разрешений на старте):
+                // повторяем попытку, пока не появится (FR-SYS-4 self-test).
+                let _ = event_tap::spawn_tap_thread();
             }
         })
         .expect("поток сторожа");

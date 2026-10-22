@@ -71,8 +71,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id().as_ref() {
             MENU_TOGGLE => {
-                // Глобальный on/off: в M0 просто логируем через меню-галочку позже.
-                tracing::info!("menu: toggle");
+                crate::commands::toggle_enabled_from_menu(app);
             }
             MENU_MASKING => {
                 // Приход «переключена»: применяем противоположное состояние.
@@ -85,7 +84,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                 }
             }
             MENU_SWITCH_LAYOUT => {
-                tracing::info!("menu: switch_layout");
+                crate::commands::switch_layout_from_menu(app);
             }
             MENU_STATS => {}
             MENU_PAUSE_30M => {
@@ -169,6 +168,20 @@ pub fn update_menu_texts(app: &AppHandle) {
             if paused {
                 let _ = tray_on.set_title(Some(String::from("⏸")));
             }
+        }
+    }
+}
+
+/// Отразить состояние «вкл/выкл» в пункте меню.
+pub fn refresh_enable_item(app: &AppHandle, on: bool) {
+    if let Some(menu) = app.menu() {
+        if let Some(tauri::menu::MenuItemKind::MenuItem(m)) = menu.get(MENU_TOGGLE) {
+            let text = if on {
+                "Выключить приложение / Disable"
+            } else {
+                "Включить приложение / Enable"
+            };
+            let _ = m.set_text(text);
         }
     }
 }

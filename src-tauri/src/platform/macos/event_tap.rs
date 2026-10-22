@@ -105,6 +105,12 @@ pub fn start(enabled: bool, autoswitch: bool, dry_run: bool) -> Result<(), Strin
         })
     });
 
+    spawn_tap_thread()?;
+    Ok(())
+}
+
+/// Создать тап в отдельном потоке (повторы — из сторожа, FR-SYS-4).
+pub fn spawn_tap_thread() -> Result<(), String> {
     std::thread::Builder::new()
         .name("caramba-tap".into())
         .spawn(move || {
@@ -125,10 +131,15 @@ pub fn start(enabled: bool, autoswitch: bool, dry_run: bool) -> Result<(), Strin
                 )
             };
             if port.is_null() {
-                tracing::error!(
-                    "CGEventTapCreate вернул NULL: нет разрешений \
-                     (Accessibility/Input Monitoring)"
-                );
+                // Не пугаем каждый повтор сторожа: раз в 10 попыток.
+                static FAILS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+                let n = FAILS.fetch_add(1, Ordering::Relaxed);
+                if n.is_multiple_of(10) {
+                    tracing::error!(
+                        "CGEventTapCreate вернул NULL: нет разрешений \
+                         (Accessibility/Input Monitoring)"
+                    );
+                }
                 return;
             }
             *shared().tap_port.lock() = Some(PortPtr(port));

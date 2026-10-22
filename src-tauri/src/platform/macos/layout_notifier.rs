@@ -11,6 +11,25 @@ use crate::tray;
 
 static HANDLE: std::sync::OnceLock<AppHandle> = std::sync::OnceLock::new();
 
+/// Немедленная синхронизация полсе ручной смены раскладки (меню).
+pub fn sync_lang_now(new_id: &str) {
+    {
+        let mut engine = super::engine_state::lock().lock();
+        engine.on_event(
+            caramba_core::engine::Event::LayoutChanged {
+                new_layout: new_id.to_string(),
+            },
+            super::event_tap::now_ms(),
+        );
+    }
+    let code = if new_id.contains("Russian") {
+        super::event_tap::LANG_RU
+    } else {
+        super::event_tap::LANG_EN
+    };
+    super::event_tap::set_current_lang(code);
+}
+
 extern "C" fn on_selected_input_changed() {
     let Some(handle) = HANDLE.get() else {
         return;

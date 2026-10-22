@@ -147,11 +147,53 @@ pub fn convert_current_word() -> Result<(), String> {
 
 /// Тумблер основного режима (меню/мастер).
 #[tauri::command]
-pub fn set_enabled_cmd(state: State<AppState>, on: bool) -> Result<(), String> {
+pub fn set_enabled_cmd(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    on: bool,
+) -> Result<(), String> {
+    set_enabled_inner(&app, &state, on);
+    Ok(())
+}
+
+/// Общая внутренняя функция «вкл/выкл» для UI и меню трея.
+pub fn set_enabled_inner(app: &tauri::AppHandle, state: &State<AppState>, on: bool) {
     state.config.lock().enabled = on;
+    let _ = save_config(state.clone());
     #[cfg(target_os = "macos")]
     crate::platform::macos::event_tap::set_enabled(on);
-    Ok(())
+    crate::tray::refresh_enable_item(app, on);
+}
+
+/// Пункт меню «Включить приложение»: переключить состояние.
+pub fn toggle_enabled_from_menu(app: &tauri::AppHandle) {
+    let state = app.state::<AppState>();
+    let on = !state.config.lock().enabled;
+    set_enabled_inner(app, &state, on);
+    tracing::info!(on, "меню: вкл/выкл применено");
+}
+
+/// Пункт меню «Сменить раскладку»: EN ⇄ RU.
+pub fn switch_layout_from_menu(app: &tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    {
+        use crate::platform::macos::{input_source, layout_notifier};
+        let current = input_source::current_input_source_id();
+        let pair = caramba_core::layouts::builtin_pair();
+        let target = if current.contains("Russian") {
+            pair.en.id.clone()
+        } else {
+            pair.ru.id.clone()
+        };
+        if let Err(e) = input_source::select_by_id(&target) {
+            tracing::error!("меню: смена раскладки: {e}");
+            return;
+        }
+        // Флаг обновляется и по системному уведомлению; продублируем.
+        crate::tray::update_layout_flag(app, &target);
+        layout_notifier::sync_lang_now(&target);
+        tracing::info!("меню: раскладка → {target}");
+    }
 }
 
 /// Применить состояние «Маскировки» ко всем подсистемам
