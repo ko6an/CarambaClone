@@ -6,6 +6,8 @@ license.workspace = true
 description = "CarambaClone core: input engine, layouts, dictionaries, rules, config"
 
 [dependencies]
+sha2 = "0.10"
+ed25519-dalek = { version = "3", default-features = false, features = ["fast"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }

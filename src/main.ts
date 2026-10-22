@@ -42,12 +42,13 @@ function selectTab(id: string): void {
     void renderApps(panel);
     return;
   }
+  if (id === "rules") {
+    void renderRules(panel);
+    return;
+  }
   const p = document.createElement("p");
   p.className = "mt-4 text-sm";
-  if (id === "rules") {
-    p.textContent =
-      "Пакет «Правил»: встроенный. Обновление — M6 (еженедельно, подписывается Ed25519).";
-  } else if (id === "hotkeys") {
+  if (id === "hotkeys") {
     p.textContent =
       "⌃⌥M — Маскировка; DoubleShift — отмена конвертации; ⌥ (тап) — отмена/конвертация; ⌥⇧R — конвертация выделения; ⌫ (2 с после исправления) — Smart Undo.";
   } else if (id === "about") {
@@ -374,6 +375,102 @@ async function renderGeneral(el: HTMLElement): Promise<void> {
       });
   });
   el.appendChild(permBtn);
+}
+
+// MARK: — Вкладка «Правила» (подписанный пакет данных, раздел 8 ТЗ)
+
+interface RulesInfo {
+  version: string;
+  date: string;
+  installed: boolean;
+  words_ru: number;
+  words_en: number;
+  app_exceptions: number;
+  last_check_secs_ago: number | null;
+}
+
+async function renderRules(el: HTMLElement): Promise<void> {
+  let info: RulesInfo;
+  try {
+    info = await invoke<RulesInfo>("rules_info");
+  } catch (e) {
+    el.textContent = `Ошибка: ${String(e)}`;
+    return;
+  }
+  const head = document.createElement("h2");
+  head.className = "text-lg font-semibold mt-4";
+  head.textContent = "Пакет «Правил»";
+  el.appendChild(head);
+  const desc = document.createElement("p");
+  desc.className = "text-sm text-neutral-500 mt-1";
+  desc.textContent =
+    "Словари, n-gram модель, таблицы правил и стартовый список исключений. Обновляется раз в неделю; пакет подписывается Ed25519 и проверяется приложением. Единственный сетевой запрос — скачивание файла пакета.";
+  el.appendChild(desc);
+
+  const statusP = document.createElement("p");
+  statusP.className = "mt-3 text-sm";
+  statusP.textContent =
+    `${info.installed ? "Установлен пакет от" : "Встроенный пакет"}: ${info.version}. Словари: RU ${info.words_ru}, EN ${info.words_en}; исключений приложений: ${info.app_exceptions}.`;
+  if (info.last_check_secs_ago !== null && info.installed) {
+    const days = Math.floor(info.last_check_secs_ago / 86400);
+    statusP.textContent += ` Последняя проверка: ${days} дн. назад.`;
+  }
+  el.appendChild(statusP);
+
+  const row = document.createElement("div");
+  row.className = "flex items-center gap-2 mt-3";
+  const checkBtn = document.createElement("button");
+  checkBtn.textContent = "Проверить сейчас";
+  checkBtn.className =
+    "rounded px-3 py-1 bg-neutral-200 dark:bg-neutral-800 hover:bg-neutral-300 dark:hover:bg-neutral-700 text-sm";
+  const stateP = document.createElement("span");
+  stateP.className = "text-sm text-neutral-500";
+  stateP.textContent = "";
+  checkBtn.addEventListener("click", () => {
+    stateP.textContent = "Проверка…";
+    void (async () => {
+      try {
+        await invoke<RulesInfo>("rules_check_now");
+        stateP.textContent = "Обновлено; пакет применён.";
+        void renderRules(el.parentElement ?? el);
+      } catch (e) {
+        stateP.textContent = `Остаться на текущем пакете: ${String(e)}`;
+      }
+    })();
+  });
+  const rollbackBtn = document.createElement("button");
+  rollbackBtn.textContent = "Откатить к встроенному";
+  rollbackBtn.className =
+    "rounded px-3 py-1 bg-neutral-200 dark:bg-neutral-800 hover:bg-neutral-300 dark:hover:bg-neutral-700 text-sm";
+  rollbackBtn.addEventListener("click", () => {
+    void (async () => {
+      try {
+        await invoke("rules_rollback");
+        void renderRules(el.parentElement ?? el);
+      } catch (e) {
+        console.error(String(e));
+      }
+    })();
+  });
+  row.append(checkBtn, rollbackBtn, stateP);
+  el.appendChild(row);
+
+  const autoRow = document.createElement("label");
+  autoRow.className = "flex items-center gap-2 mt-3 text-sm";
+  const autoBox = document.createElement("input");
+  autoBox.type = "checkbox";
+  autoBox.checked = await invoke<boolean>("get_rules_autoupdate");
+  autoBox.addEventListener("change", () => {
+    void (async () => {
+      try {
+        await invoke("set_rules_autoupdate", { on: autoBox.checked });
+      } catch {
+        autoBox.checked = !autoBox.checked;
+      }
+    })();
+  });
+  autoRow.append(autoBox, document.createTextNode("Автообновление раз в неделю"));
+  el.appendChild(autoRow);
 }
 
 // MARK: — Вкладка «Словарь» (слова-исключения, FR-EXC-1)

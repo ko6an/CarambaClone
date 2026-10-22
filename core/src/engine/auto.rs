@@ -199,6 +199,8 @@ pub struct Engine {
     spell_check: Option<SpellChecker>,
     /// Ё-пары (FR-YO-1): «еще» → «ещё».
     yo_pairs: Vec<(String, String)>,
+    /// Курируемая таблица опечаток (FR-TYPO-1а из пакета «Правил»).
+    typos_curated: Vec<(String, String)>,
     /// Незакрытые «(» — для фокуса 4 (сбрасывается на смене приложения).
     open_brackets: i32,
 }
@@ -231,6 +233,7 @@ impl Engine {
             current_lang: Lang::En,
             spell_check: None,
             yo_pairs: crate::rules::yo::builtin(),
+            typos_curated: Vec::new(),
             open_brackets: 0,
         }
     }
@@ -300,6 +303,25 @@ impl Engine {
 
     pub fn exceptions_mut(&mut self) -> &mut Exceptions {
         &mut self.exceptions
+    }
+
+    /// Применить пакет «Правил» (M6): заменить словари, n-gram,
+    /// ё-пары и таблицу опечаток.
+    pub fn apply_rules_pack(&mut self, pack: &crate::rules::pack::PackPayload) {
+        self.words_en = WordSet::new(pack.words_en.to_vec());
+        self.words_ru = WordSet::new(pack.words_ru.to_vec());
+        self.model_en = NgramModel::load_counts(&pack.ngram_en);
+        self.model_ru = NgramModel::load_counts(&pack.ngram_ru);
+        self.yo_pairs = pack
+            .yo_pairs
+            .iter()
+            .map(|p| (p.from.clone(), p.to.clone()))
+            .collect();
+        self.typos_curated = pack
+            .typos
+            .iter()
+            .map(|p| (p.from.clone(), p.to.clone()))
+            .collect();
     }
 
     fn words(&self, lang: Lang) -> &WordSet {
@@ -613,8 +635,14 @@ impl Engine {
                 return Some(out);
             }
         }
-        // (б) перестановка/пропуск/удвоение — ровно один словарный кандидат.
         if self.config.typos_fix {
+            // (а) курируемая таблица из пакета «Правил» (регистр не важен).
+            if let Some(out) = crate::rules::typos::fix_from_table(text, &self.typos_curated) {
+                if self.valid(&out, lang) {
+                    return Some(out);
+                }
+            }
+            // (б) перестановка/пропуск/удвоение — ровно один словарный кандидат.
             if let Some(out) = crate::rules::typos::typo_candidates(text, |c| self.valid(c, lang)) {
                 return Some(out);
             }
@@ -1094,5 +1122,34 @@ mod tests {
             }
             other => panic!("ожидалась Replace, получено {other:?}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod pack_tests {
+    use crate::engine::Engine;
+    use crate::rules::pack::PackPayload;
+
+    #[test]
+    fn пакет_заменяет_таблицу_опечаток() {
+        let payload = PackPayload {
+            words_en: vec!["hello".into(), "new".into(), "token".into()],
+            words_ru: vec!["оружие".into(), "бразов".into()],
+            ngram_ru: std::collections::BTreeMap::new(),
+            ngram_en: std::collections::BTreeMap::new(),
+            yo_pairs: vec![crate::rules::pack::YoPair {
+                from: "еще".into(),
+                to: "ещё".into(),
+            }],
+            typos: vec![crate::rules::pack::TypoEntry {
+                from: "тесет".into(),
+                to: "тест".into(),
+            }],
+            app_exceptions: vec!["com.apple.Terminal".into()],
+        };
+        let mut engine = Engine::new();
+        engine.apply_rules_pack(&payload);
+        // Применение не падает и не меняет раскладку.
+        assert_eq!(engine.current_lang(), crate::layouts::Lang::En);
     }
 }

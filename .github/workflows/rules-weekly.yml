@@ -1,0 +1,62 @@
+name: rules-weekly
+
+# Еженедельная сборка подписанного пакета «Правил» (раздел 8 ТЗ):
+# по расписанию (понедельник 03:00 UTC) и вручную. Если данные за
+# неделю не изменились — релиз не создаётся; ошибка сборки/подписи
+# не открывает релиз (клиент остаётся на встроенном пакете).
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-pack:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Собрать пакет
+        env:
+          # Приватный ключ подписанта — секрет репозитория.
+          RULES_SIGNING_KEY: ${{ secrets.RULES_SIGNING_KEY }}
+        run: |
+          cargo build -p rules-builder --release
+          ./target/release/rules-builder build --out rules-latest.pack
+
+      - name: Локальная верификация
+        run: |
+          cargo test -p caramba-core --quiet
+
+      - name: Проверить, что пакет изменился
+        id: changed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OLD_SHA=$(gh release view rules-latest --json assets -q \
+            '.assets[0].name' 2>/dev/null || echo "none")
+          # Сравниваем манифест: старый пакет скачиваем и сверяем SHA-256.
+          if [ "$OLD_SHA" != "none" ]; then
+            gh release download rules-latest -p 'rules-latest.pack' \
+              -O /tmp/old.pack 2>/dev/null || OLD_SHA="missing"
+            [ -f /tmp/old.pack ] && cmp -s rules-latest.pack /tmp/old.pack \
+              && SAME=same || SAME=changed
+          else
+            SAME=changed
+          fi
+          echo "same=$SAME" >> "$GITHUB_OUTPUT"
+
+      - name: Создать / обновить релиз rules-latest
+        if: steps.changed.outputs.same != 'same'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete rules-latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create rules-latest rules-latest.pack \
+            --title "Правила ${{ github.run_id }}" \
+            --notes "Еженедельный пакет «Правил» (подписан Ed25519)."

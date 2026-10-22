@@ -86,6 +86,12 @@ pub fn engine_config(cfg: &Config) -> EngineConfig {
     }
 }
 
+/// Применить пакет «Правил» к движку (словари, n-gram, ё, опечатки).
+pub fn apply_rules_pack(payload: &caramba_core::rules::PackPayload) {
+    let mut engine = lock().lock();
+    engine.apply_rules_pack(payload);
+}
+
 /// Установить список исключений (настройки/пакеты Правил).
 pub fn set_exceptions(words: Vec<String>) {
     let mut engine = lock().lock();

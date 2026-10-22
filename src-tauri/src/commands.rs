@@ -342,6 +342,39 @@ pub fn exceptions_default_cmd() -> Vec<String> {
     caramba_core::config::start_list_exceptions()
 }
 
+/// Читаемое состояние автообновления «Правил» (для UI).
+#[tauri::command]
+pub fn get_rules_autoupdate(state: State<AppState>) -> bool {
+    state.config.lock().rules_autoupdate
+}
+
+/// Включить/выключить автообновление «Правил».
+#[tauri::command]
+pub fn set_rules_autoupdate(state: State<AppState>, on: bool) -> Result<(), String> {
+    state.config.lock().rules_autoupdate = on;
+    save_config(state)
+}
+
+// MARK: — Пакет «Правил» (раздел 8 ТЗ)
+
+/// Состояние пакета «Правил» (вкладка «Правила»).
+#[tauri::command]
+pub fn rules_info() -> crate::rules_client::RulesInfo {
+    crate::rules_client::info()
+}
+
+/// Проверить сейчас (скачать, проверить, применить).
+#[tauri::command]
+pub fn rules_check_now() -> Result<crate::rules_client::RulesInfo, String> {
+    crate::rules_client::check_and_install().map_err(|e| e.to_string())
+}
+
+/// Откатить обновлённый пакет к встроенному (M6).
+#[tauri::command]
+pub fn rules_rollback() -> Result<crate::rules_client::RulesInfo, String> {
+    crate::rules_client::rollback_to_builtin().map_err(|e| e.to_string())
+}
+
 /// Открыть папку Games (FR-EXC-5).
 #[tauri::command]
 pub fn open_games_folder() -> Result<(), String> {

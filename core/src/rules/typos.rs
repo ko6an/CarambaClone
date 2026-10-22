@@ -32,6 +32,37 @@ pub fn fix_double_capital(text: &str) -> Option<String> {
 
 /// Кандидаты-опечатки, дающие ровно один словарный результат.
 /// `is_valid` — проверка словарности кандидата.
+/// (а) Курируемая таблица «ошибка → правильно» (пакет «Правил»),
+/// сравнение без учёта регистра; возвращает замену с сохранением
+/// регистра первой буквы.
+pub fn fix_from_table(text: &str, table: &[(String, String)]) -> Option<String> {
+    let lower_lower = text.to_lowercase();
+    let mut best: Option<String> = None;
+    for (from, to) in table {
+        if from.eq_ignore_ascii_case(&lower_lower) && !from.is_empty() {
+            // самая длинная подходящая запись уже победила бы по точности:
+            // таблица не содержит дубликатов — берём первое совпадение.
+            let mut out = to.clone();
+            if let Some(first) = text.chars().next() {
+                if first.is_uppercase() {
+                    if let Some(c) = out.chars().next() {
+                        let rest: String = out.chars().skip(1).collect();
+                        out = char_to_upper(c) + &rest;
+                    }
+                }
+            }
+            if best.is_none() {
+                best = Some(out);
+            }
+        }
+    }
+    best
+}
+
+fn char_to_upper(c: char) -> String {
+    c.to_uppercase().collect()
+}
+
 pub fn typo_candidates(text: &str, is_valid: impl Fn(&str) -> bool) -> Option<String> {
     if text.chars().count() < 4 {
         return None;

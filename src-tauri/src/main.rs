@@ -4,6 +4,7 @@
 
 mod commands;
 mod platform;
+mod rules_client;
 mod tray;
 
 use commands::AppState;
@@ -133,6 +134,11 @@ fn main() {
             commands::open_log_cmd,
             commands::open_games_folder,
             commands::get_ui_lang,
+            commands::rules_info,
+            commands::rules_check_now,
+            commands::rules_rollback,
+            commands::get_rules_autoupdate,
+            commands::set_rules_autoupdate,
             commands::set_verbose_logging
         ])
         .setup(move |app| {
@@ -145,6 +151,14 @@ fn main() {
             {
                 use crate::platform::macos;
                 macos::engine_state::init(&cfg_setup);
+                // Пакет «Правил»: применяем установленный при старте;
+                // еженедельная проверка если включено автообновление.
+                if let Some(installed) = rules_client::load_installed() {
+                    rules_client::apply_to_engine(&installed);
+                }
+                if cfg_setup.rules_autoupdate && rules_client::check_due() {
+                    let _ = rules_client::check_and_install();
+                }
                 // Системная орфография (M3) — замыкание на главный поток.
                 macos::engine_state::set_spell_checker();
                 macos::event_tap::start(cfg_setup.enabled, cfg_setup.autoswitch, cfg_setup.dry_run)

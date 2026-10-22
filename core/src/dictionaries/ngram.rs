@@ -62,6 +62,21 @@ impl NgramModel {
         sum / n as f64
     }
 
+    /// Модель из готовой таблицы «триграмма → вес» (пакет «Правил»).
+    pub fn load_counts(map: &std::collections::BTreeMap<String, u8>) -> Self {
+        let mut out = NgramModel::new();
+        let mut total = 0u64;
+        for (tri, w) in map {
+            let chars: Vec<char> = tri.chars().collect();
+            if chars.len() == 3 && *w > 0 {
+                out.counts.insert(pack3(&chars), u32::from(*w));
+                total += u32::from(*w) as u64;
+            }
+        }
+        out.total = f64::from(u32::try_from(total).unwrap_or(u32::MAX));
+        out
+    }
+
     /// Встречается ли в тексте триграмма, «невозможная» для обученного языка.
     pub fn has_impossible_combo(&self, text: &str, min_weight: u32) -> bool {
         let chars: Vec<char> = ['#'].into_iter().chain(text.chars()).chain(['#']).collect();
