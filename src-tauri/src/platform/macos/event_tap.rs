@@ -2,6 +2,7 @@
 //! нажатия, передаёт в движок, исполняет решения — замены (синтетическими
 //! событиями) и переключения раскладки, ручные хоткеи.
 
+use super::ax;
 use super::engine_state;
 use super::ffi;
 use super::typing;
@@ -131,13 +132,22 @@ pub fn spawn_tap_thread() -> Result<(), String> {
                 )
             };
             if port.is_null() {
-                // Не пугаем каждый повтор сторожа: раз в 10 попыток.
+                // Диагностика при каждом повторе сторожа: как API видит
+                // разрешения (TCC-«залипание» видно по ax/listen/post).
                 static FAILS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
                 let n = FAILS.fetch_add(1, Ordering::Relaxed);
-                if n.is_multiple_of(10) {
+                if n.is_multiple_of(2) {
+                    let ax_ok = ax::is_accessibility_trusted_prompt(false);
+                    let listen = ax::listen_event_access();
+                    let post = ax::post_event_access();
+                    let exe = std::env::current_exe()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_default();
                     tracing::error!(
-                        "CGEventTapCreate вернул NULL: нет разрешений \
-                         (Accessibility/Input Monitoring)"
+                        "CGEventTapCreate вернул NULL: accessibility={ax_ok} \
+                         listen={listen} post={post} exe={exe} \
+                         (разрешения выданы? — удалите запись из обоих списков \
+                         кнопкой «−» и добавьте приложение заново)"
                     );
                 }
                 return;
