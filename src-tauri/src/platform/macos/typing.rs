@@ -142,3 +142,28 @@ pub fn post_backspaces(n: usize) {
 pub fn post_hotkey_half(flags: u64, kc: u16, down: bool) {
     post_key(kc, down, flags);
 }
+
+#[cfg(test)]
+mod tests {
+    use caramba_core::layouts::{builtin_pair, classify, CharClass};
+
+    /// Полностью ли текст представим клавишами таблицы (без юникод-fallback).
+    fn is_key_typable(text: &str) -> bool {
+        let pair = builtin_pair();
+        let cyr = text.chars().any(|c| classify(c) == CharClass::Cyrillic);
+        let table = if cyr { &pair.ru } else { &pair.en };
+        text.chars().all(|c| {
+            let key = c.to_string();
+            table.keys.iter().any(|e| e.lower == key || e.upper == key)
+        })
+    }
+
+    #[test]
+    fn замены_представимы_клавишами() {
+        assert!(is_key_typable("привет"));
+        assert!(is_key_typable("Здравствуйте"));
+        assert!(is_key_typable("hello"));
+        assert!(is_key_typable("ghbdtn"));
+        assert!(is_key_typable("Спасибо"));
+    }
+}
