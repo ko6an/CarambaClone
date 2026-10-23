@@ -544,8 +544,22 @@ fn exec_one(action: &Action) {
             typing::post_text_smart(text);
         }
         Action::SwitchLayout { layout } => {
+            // TISSelectInputSource обязан вызываться в главном потоке:
+            // из потока рун-лупа тапа выбор раскладки молча не работает.
             tracing::info!(%layout, "переключение раскладки");
-            let _ = super::input_source::select_by_id(layout);
+            let id = layout.clone();
+            if let Some(app) = crate::tray::app_handle() {
+                let r = app.run_on_main_thread(move || {
+                    if let Err(e) = super::input_source::select_by_id(&id) {
+                        tracing::error!("переключение раскладки: {e}");
+                    }
+                });
+                if r.is_err() {
+                    tracing::error!("не передали смену раскладки в main-поток");
+                }
+            } else if let Err(e) = super::input_source::select_by_id(layout) {
+                tracing::error!("переключение раскладки: {e}");
+            }
         }
         Action::Sound(kind) => {
             let (switch_file, fix_file, volume) = {

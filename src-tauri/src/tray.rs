@@ -120,6 +120,11 @@ pub fn remember_app_handle(app: &AppHandle) {
     let _ = APP_HANDLE.set(app.clone());
 }
 
+/// Общий дескриптор приложения (для вызовов в main-потоке).
+pub fn app_handle() -> Option<&'static AppHandle> {
+    APP_HANDLE.get()
+}
+
 /// Обновить пункты меню из любого потока.
 pub fn update_menu_texts_threaded() {
     if let Some(app) = APP_HANDLE.get() {
