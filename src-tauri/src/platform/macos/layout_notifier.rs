@@ -73,7 +73,7 @@ pub fn start(app: &AppHandle) {
             on_selected_input_changed_notify,
             super::ffi::kTISNotifySelectedKeyboardInputSourceChanged,
             std::ptr::null(),
-            0,
+            super::ffi::K_CF_NOTIFICATION_SUSPENSION_BEHAVIOR_DELIVER_IMMEDIATELY,
         );
     }
     // Первичная установка флага и кэша включённых раскладок пары.

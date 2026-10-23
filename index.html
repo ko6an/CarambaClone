@@ -6,14 +6,26 @@
     <title>CarambaClone</title>
     <link rel="stylesheet" href="./src/styles.css" />
   </head>
-  <body class="bg-neutral-100 dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100">
-    <div id="app" class="mx-auto max-w-2xl p-6">
-      <h1 class="text-xl font-semibold">CarambaClone</h1>
-      <p id="status" class="mt-2 text-sm text-neutral-600 dark:text-neutral-300">
-        Загрузка…
-      </p>
-      <div id="tabs" class="mt-6 flex gap-2 text-sm"></div>
-      <div id="panel" class="mt-2"></div>
+  <body class="bg-neutral-100 dark:bg-[#1c1c1e] text-neutral-900 dark:text-neutral-100 select-none overflow-hidden h-screen font-sans">
+    <div id="app" class="flex h-screen w-full">
+      <!-- Левая колонка: пункты меню расположены ровно слева -->
+      <aside class="w-52 flex-shrink-0 border-r border-neutral-200 dark:border-neutral-800/80 bg-neutral-200/50 dark:bg-[#252528]/80 flex flex-col p-3">
+        <div class="px-2 py-2 mb-2 flex items-center gap-2.5">
+          <div class="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-sm font-bold text-xs tracking-wider">
+            CC
+          </div>
+          <div class="flex-1 min-w-0">
+            <h1 class="text-xs font-semibold leading-tight tracking-tight truncate">CarambaClone</h1>
+            <p id="app-version-badge" class="text-[11px] text-neutral-500 dark:text-neutral-400 truncate">v1.0.6</p>
+          </div>
+        </div>
+        <nav id="tabs" class="flex flex-col gap-0.5 text-sm overflow-y-auto flex-1"></nav>
+      </aside>
+
+      <!-- Правая колонка: то, что выводят пункты меню -->
+      <main class="flex-1 flex flex-col h-screen overflow-y-auto bg-neutral-50/80 dark:bg-[#1e1e20] p-6">
+        <div id="panel" class="max-w-xl mx-auto w-full"></div>
+      </main>
     </div>
     <script type="module" src="./src/main.ts"></script>
   </body>

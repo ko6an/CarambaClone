@@ -29,7 +29,11 @@ pub fn get_config(state: State<AppState>) -> Config {
 
 /// Сохранить конфигурацию.
 #[tauri::command]
-pub fn set_config(state: State<AppState>, config: Config) -> Result<(), String> {
+pub fn set_config(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    config: Config,
+) -> Result<(), String> {
     let path = {
         let mut guard = state.config_path.lock();
         if guard.is_none() {
@@ -49,6 +53,10 @@ pub fn set_config(state: State<AppState>, config: Config) -> Result<(), String> 
         crate::platform::macos::event_tap::set_autoswitch(config.autoswitch);
         crate::platform::macos::event_tap::set_dry_run(config.dry_run);
     }
+    crate::tray::refresh_enable_item(&app, config.enabled);
+    crate::tray::set_masking_indicator(&app, config.masking_on);
+    use tauri::Emitter;
+    let _ = app.emit("enabled-changed", config.enabled);
     Ok(())
 }
 
@@ -163,6 +171,8 @@ pub fn set_enabled_inner(app: &tauri::AppHandle, state: &State<AppState>, on: bo
     #[cfg(target_os = "macos")]
     crate::platform::macos::event_tap::set_enabled(on);
     crate::tray::refresh_enable_item(app, on);
+    use tauri::Emitter;
+    let _ = app.emit("enabled-changed", on);
 }
 
 /// Пункт меню «Включить приложение»: переключить состояние.
@@ -509,4 +519,10 @@ pub fn app_data_dir(state: State<AppState>) -> String {
     path.parent()
         .map(|p| p.display().to_string())
         .unwrap_or_default()
+}
+
+/// Версия приложения (из workspace Cargo.toml → tauri.conf.json).
+#[tauri::command]
+pub fn get_app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
 }

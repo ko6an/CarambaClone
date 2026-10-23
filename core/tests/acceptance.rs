@@ -348,3 +348,73 @@ fn опечатки_отключены() {
     let actions = play(&mut e, "своа", &builtin_pair().ru);
     assert!(actions.is_empty());
 }
+
+#[test]
+fn backspace_удаляет_символ_из_буфера() {
+    // Пользователь набрал «ghbdtx», нажал ⌫ (Backspace), затем «n» и пробел → должно конвертироваться в «привет»
+    use caramba_core::engine::Event;
+    let mut e = Engine::new();
+    let pair = builtin_pair();
+    let layout = &pair.en;
+    e.set_current_lang(caramba_core::layouts::Lang::En);
+    let mut now_ms = 0u64;
+
+    for c in "ghbdtx".chars() {
+        let entry = layout.keys.iter().find(|entry| entry.lower == c.to_string()).unwrap();
+        now_ms += 10;
+        e.on_event(Event::KeyDown { keycode: entry.kc, shift: false, caps: false, repeat: false }, now_ms);
+    }
+
+    // Нажатие Backspace (0x33)
+    now_ms += 10;
+    let act = e.on_event(Event::KeyDown { keycode: 0x33, shift: false, caps: false, repeat: false }, now_ms);
+    assert!(act.is_empty(), "Backspace не должен вызывать ложную замену");
+
+    // Нажатие 'n'
+    let entry_n = layout.keys.iter().find(|entry| entry.lower == "n").unwrap();
+    now_ms += 10;
+    e.on_event(Event::KeyDown { keycode: entry_n.kc, shift: false, caps: false, repeat: false }, now_ms);
+
+    // Нажатие пробела
+    now_ms += 10;
+    let actions = e.on_event(Event::KeyDown { keycode: 0x31, shift: false, caps: false, repeat: false }, now_ms);
+    assert_eq!(
+        actions,
+        vec![
+            Action::Replace { backspaces: 6, text: "привет".into() },
+            Action::SwitchLayout { layout: "com.apple.keylayout.Russian".into() }
+        ]
+    );
+}
+
+#[test]
+fn enter_исправление_по_опции() {
+    use caramba_core::engine::{EngineConfig, Event};
+    let mut e = Engine::new();
+    let pair = builtin_pair();
+    let layout = &pair.en;
+    e.set_current_lang(caramba_core::layouts::Lang::En);
+
+    // 1. По умолчанию fix_on_enter = false: Enter очищает буфер без замены
+    for c in "ghbdtn".chars() {
+        let entry = layout.keys.iter().find(|entry| entry.lower == c.to_string()).unwrap();
+        e.on_event(Event::KeyDown { keycode: entry.kc, shift: false, caps: false, repeat: false }, 10);
+    }
+    let actions = e.on_event(Event::KeyDown { keycode: 0x24, shift: false, caps: false, repeat: false }, 20);
+    assert!(actions.is_empty(), "Enter не должен исправлять при fix_on_enter = false");
+
+    // 2. При fix_on_enter = true: Enter выполняет замену
+    e.set_config(EngineConfig { fix_on_enter: true, ..EngineConfig::default() });
+    for c in "ghbdtn".chars() {
+        let entry = layout.keys.iter().find(|entry| entry.lower == c.to_string()).unwrap();
+        e.on_event(Event::KeyDown { keycode: entry.kc, shift: false, caps: false, repeat: false }, 10);
+    }
+    let actions = e.on_event(Event::KeyDown { keycode: 0x24, shift: false, caps: false, repeat: false }, 20);
+    assert_eq!(
+        actions,
+        vec![
+            Action::Replace { backspaces: 6, text: "привет".into() },
+            Action::SwitchLayout { layout: "com.apple.keylayout.Russian".into() }
+        ]
+    );
+}

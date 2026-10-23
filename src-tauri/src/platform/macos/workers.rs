@@ -71,11 +71,9 @@ pub fn start() {
                     );
                 }
                 tick += 1;
-                if tick.is_multiple_of(60) {
-                    // Пункты меню: счётчик и оставшееся время паузы.
-                    crate::tray::update_menu_texts_threaded();
-                }
                 if tick.is_multiple_of(10) {
+                    // Пункты меню: счётчик и оставшееся время паузы (~5 с).
+                    crate::tray::update_menu_texts_threaded();
                     // Папка Games: поллинг ~1 раз в 5 с.
                     profiles::poll_games();
                     let games_hit = profiles::games_hit(&current);

@@ -26,18 +26,42 @@ pub const MENU_QUIT: &str = "quit";
 #[allow(dead_code)] // Используется при реализации паузы (M5)
 pub const MENU_PAUSE: &str = "pause";
 
+static TRAY_MENU: std::sync::OnceLock<tauri::menu::Menu<tauri::Wry>> = std::sync::OnceLock::new();
+
+/// Получить меню трея.
+#[allow(dead_code)]
+pub fn tray_menu() -> Option<&'static tauri::menu::Menu<tauri::Wry>> {
+    TRAY_MENU.get()
+}
+
 /// Создать трей с иконкой-шаблоном и меню.
 pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
-    let toggle =
-        MenuItemBuilder::with_id(MENU_TOGGLE, "Включить приложение / Enable").build(app)?;
+    let enabled = app
+        .try_state::<crate::commands::AppState>()
+        .map(|st| st.config.lock().enabled)
+        .unwrap_or(true);
+    let toggle_text = if enabled {
+        "Выключить приложение / Disable"
+    } else {
+        "Включить приложение / Enable"
+    };
+    let toggle = MenuItemBuilder::with_id(MENU_TOGGLE, toggle_text).build(app)?;
+
+    let masking_on = app
+        .try_state::<crate::commands::AppState>()
+        .map(|st| st.config.lock().masking_on)
+        .unwrap_or(false);
     let masking = CheckMenuItemBuilder::with_id(MENU_MASKING, "Маскировка (⌃⌥M) / Masking")
-        .checked(false)
+        .checked(masking_on)
         .build(app)?;
+
     let switch =
         MenuItemBuilder::with_id(MENU_SWITCH_LAYOUT, "Сменить раскладку… / Switch layout…")
             .build(app)?;
     let settings = MenuItemBuilder::with_id(MENU_SETTINGS, "Настройки… / Settings…").build(app)?;
-    let stats = MenuItemBuilder::with_id(MENU_STATS, "Исправлено: 0 / 0")
+
+    let (today, total) = crate::commands::stats_numeric();
+    let stats = MenuItemBuilder::with_id(MENU_STATS, format!("Исправлено: {today} / {total}"))
         .enabled(false)
         .build(app)?;
     let pause = SubmenuBuilder::new(app, "Приостановить")
@@ -61,6 +85,8 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         .separator()
         .item(&quit)
         .build()?;
+
+    let _ = TRAY_MENU.set(menu.clone());
 
     let icon: Image<'_> = tauri::include_image!("icons/tray.png");
 
@@ -141,7 +167,7 @@ pub fn pause_items(_app: &AppHandle, _result: Result<(), String>) {
 
 /// Периодическое обновление пунктов меню (вызывает workers).
 pub fn update_menu_texts(app: &AppHandle) {
-    let Some(menu) = app.menu() else { return };
+    let Some(menu) = TRAY_MENU.get() else { return };
     // Счётчик исправлений (FR-SYS-3).
     let (today, total) = crate::commands::stats_numeric();
     if let Some(tauri::menu::MenuItemKind::MenuItem(m)) = menu.get(MENU_STATS) {
@@ -179,7 +205,7 @@ pub fn update_menu_texts(app: &AppHandle) {
 
 /// Отразить состояние «вкл/выкл» в пункте меню.
 pub fn refresh_enable_item(app: &AppHandle, on: bool) {
-    if let Some(menu) = app.menu() {
+    if let Some(menu) = TRAY_MENU.get() {
         if let Some(tauri::menu::MenuItemKind::MenuItem(m)) = menu.get(MENU_TOGGLE) {
             let text = if on {
                 "Выключить приложение / Disable"
@@ -188,6 +214,11 @@ pub fn refresh_enable_item(app: &AppHandle, on: bool) {
             };
             let _ = m.set_text(text);
         }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let id0 = crate::platform::macos::input_source::current_input_source_id();
+        update_layout_flag(app, &id0);
     }
 }
 
@@ -206,7 +237,7 @@ pub fn set_masking_indicator(app: &AppHandle, on: bool) {
         let _ = tray.set_icon(Some(icon));
         let _ = tray.set_icon_as_template(true);
     }
-    if let Some(menu) = app.menu() {
+    if let Some(menu) = TRAY_MENU.get() {
         if let Some(tauri::menu::MenuItemKind::Check(c)) = menu.get(MENU_MASKING) {
             let _ = c.set_checked(on);
         }
@@ -223,8 +254,17 @@ pub fn update_layout_flag(app: &AppHandle, layout_id: &str) {
     }
     .short_name
     .to_string();
+    let enabled = app
+        .try_state::<crate::commands::AppState>()
+        .map(|st| st.config.lock().enabled)
+        .unwrap_or(true);
+    let title = if enabled {
+        short
+    } else {
+        format!("{short} ⊘")
+    };
     if let Some(tray) = app.tray_by_id("main-tray") {
-        let _ = tray.set_title(Some(short));
+        let _ = tray.set_title(Some(title));
     }
 }
 

@@ -5,3 +5,5 @@ src-tauri/gen/
 *.log
 .DS_Store
 .cargo/
+.cargo_home/
+.cargo_cache/

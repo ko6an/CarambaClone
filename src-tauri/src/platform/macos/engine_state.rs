@@ -80,6 +80,7 @@ pub fn engine_config(cfg: &Config) -> EngineConfig {
         trick_cap_excl: cfg.trick_cap_excl,
         trick_particles: cfg.trick_particles,
         yo_fixer: cfg.yo_fixer,
+        fix_on_enter: cfg.fix_on_enter,
         sound_on_switch: cfg.sound_on_switch,
         sound_on_fix: cfg.sound_on_fix,
         undo_window_ms: 2000,

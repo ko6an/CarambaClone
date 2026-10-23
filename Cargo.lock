@@ -449,7 +449,7 @@ dependencies = [
 
 [[package]]
 name = "caramba-app"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "block2",
  "caramba-core",
@@ -474,7 +474,7 @@ dependencies = [
 
 [[package]]
 name = "caramba-core"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "criterion",
  "ed25519-dalek",
@@ -3306,7 +3306,7 @@ dependencies = [
 
 [[package]]
 name = "rules-builder"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "caramba-core",
  "ed25519-dalek",

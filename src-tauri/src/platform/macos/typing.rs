@@ -8,15 +8,14 @@ use std::sync::OnceLock;
 use super::ffi;
 
 /// Встроенная пара раскладок (однократная инициализация).
+#[allow(dead_code)]
 fn pair() -> &'static caramba_core::layouts::Pair {
     static PAIR: OnceLock<caramba_core::layouts::Pair> = OnceLock::new();
     PAIR.get_or_init(caramba_core::layouts::builtin_pair)
 }
 
-/// Печать текста «настоящими клавишами»: для каждого символа ищем
-/// (keycode, shift) в таблице выбранной раскладки. Символы, которых
-/// нет в таблице, печатаются юникод-строками (старый путь).
-/// Выбор таблицы: кириллица -> RU, иначе EN.
+/// Печать текста «настоящими клавишами» (запасной экспериментальный путь).
+#[allow(dead_code)]
 pub fn post_text_smart(text: &str) {
     let pair = pair();
     let cyr = text.chars().any(|c| classify(c) == CharClass::Cyrillic);

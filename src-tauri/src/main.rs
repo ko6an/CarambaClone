@@ -139,7 +139,8 @@ fn main() {
             commands::rules_rollback,
             commands::get_rules_autoupdate,
             commands::set_rules_autoupdate,
-            commands::set_verbose_logging
+            commands::set_verbose_logging,
+            commands::get_app_version
         ])
         .setup(move |app| {
             // Нет значка в Dock (только строка меню).
@@ -174,11 +175,7 @@ fn main() {
                 macos::event_tap::set_masking(cfg_setup.masking_on);
                 macos::event_tap::set_masking_intensity(cfg_setup.masking_intensity);
                 let id0 = macos::input_source::current_input_source_id();
-                macos::event_tap::set_current_lang(if id0.contains("Russian") {
-                    macos::event_tap::LANG_RU
-                } else {
-                    macos::event_tap::LANG_EN
-                });
+                macos::layout_notifier::sync_lang_now(&id0);
                 let toggle_handle = app.handle().clone();
                 macos::event_tap::set_masking_toggle(Box::new(move |on| {
                     let h = toggle_handle.clone();

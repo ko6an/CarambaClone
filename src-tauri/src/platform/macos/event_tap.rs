@@ -462,11 +462,9 @@ fn handle_key_down(sh: &Arc<TapShared>, event: ffi::CGEventRef) -> ffi::CGEventR
     }
 
     execute(&actions);
-    if actions.iter().any(|a| matches!(a, Action::Replace { .. })) {
-        std::ptr::null_mut() // поглотить: замена уже напечатана
-    } else {
-        event
-    }
+    // Граничное событие (пробел, Enter и т.п.) не поглощаем — оно должно быть напечатано
+    // в приложении сразу после вставки заменённого слова.
+    event
 }
 
 /// Пары двойников (вшитая таблица `resources/masking/pairs.toml`).
@@ -544,20 +542,19 @@ fn exec_one(action: &Action) {
                 len = text.chars().count(),
                 "замена выполнена"
             );
-            // Живой путь: настоящие клавиши по таблице раскладки;
-            // недостающие символы — юникод-строкой (старый путь).
-            typing::post_text_smart(text);
+            // Печать Unicode-строкой (CGEventKeyboardSetUnicodeString) — гарантирует
+            // точный текст в поле ввода независимо от задержек переключения TIS в приложении.
+            typing::post_text(text);
         }
         Action::SwitchLayout { layout } => {
             // TISSelectInputSource и TISCreateInputSourceList обязаны
             // работать в главном потоке: из колбэка тапа HIToolbox ловит
             // dispatch_assert_queue и процесс погибает (SIGTRAP).
-            // Переключение синхронное — печать замены keycode-ами ниже
-            // опирается на уже выбранную раскладку.
             tracing::info!(%layout, "переключение раскладки");
             if let Err(e) = super::input_source::select_layout_threadsafe(layout) {
                 tracing::error!("переключение раскладки: {e}");
             }
+            super::layout_notifier::sync_lang_now(layout);
         }
         Action::Sound(kind) => {
             let (switch_file, fix_file, volume) = {

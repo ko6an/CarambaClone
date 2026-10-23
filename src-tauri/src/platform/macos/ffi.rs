@@ -163,6 +163,9 @@ extern "C" {
     );
 }
 
+/// kCFNotificationDeliverImmediately (4) — доставка уведомления даже когда процесс в фоне
+pub const K_CF_NOTIFICATION_SUSPENSION_BEHAVIOR_DELIVER_IMMEDIATELY: u32 = 4;
+
 // MARK: — HIToolbox / Carbon (TIS, secure input)
 
 #[link(name = "Carbon", kind = "framework")]

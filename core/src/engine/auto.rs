@@ -90,6 +90,8 @@ pub struct EngineConfig {
     pub trick_particles: bool,
     /// Ёфикатор.
     pub yo_fixer: bool,
+    /// Исправлять по Enter (FR-SW-8).
+    pub fix_on_enter: bool,
     /// Звук при автопереключении раскладки.
     pub sound_on_switch: bool,
     /// Звук при исправлении («фокус»/опечатка/ё).
@@ -115,6 +117,7 @@ impl Default for EngineConfig {
             trick_cap_excl: true,
             trick_particles: true,
             yo_fixer: false,
+            fix_on_enter: false,
             sound_on_switch: false,
             sound_on_fix: false,
             undo_window_ms: 2000,
@@ -388,6 +391,16 @@ impl Engine {
                 ")" => self.open_brackets = (self.open_brackets - 1).max(0),
                 _ => {}
             }
+        }
+        // Backspace: удаляет последний символ из буфера токена.
+        if keycode == super::token::KVK_BACKSPACE {
+            self.buffer.pop();
+            return Vec::new();
+        }
+        // Enter: если опция fix_on_enter выключена, сбрасываем буфер без автозамены.
+        if keycode == super::token::KVK_RETURN && !self.config.fix_on_enter {
+            self.buffer.clear();
+            return Vec::new();
         }
         // Жёсткая граница: оценить токен перед границей и пропустить клавишу.
         if is_hard_boundary(
