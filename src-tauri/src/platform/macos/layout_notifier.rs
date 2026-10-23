@@ -2,8 +2,6 @@
 //! (Darwin-уведомление kTISNotifySelectedKeyboardInputSourceChanged).
 //! Вызывается на главном рун-лупе; синхронизирует движок и трей.
 
-use core_foundation::base::TCFType;
-use core_foundation::string::CFString;
 use tauri::AppHandle;
 
 use super::input_source::current_input_source_id;
@@ -48,6 +46,9 @@ extern "C" fn on_selected_input_changed() {
     }
     // Обновляем флаг в трее.
     tray::update_layout_flag(handle, &id);
+    // Пользователь мог включить/выключить раскладки в системе —
+    // пересчитываем кэш пары (мы в главном потоке).
+    super::input_source::refresh_enabled_pair();
     // Маскировка живёт только в русской раскладке: синхронизируем тап.
     let code = if id.contains("Russian") {
         super::event_tap::LANG_RU
@@ -61,19 +62,22 @@ extern "C" fn on_selected_input_changed() {
 pub fn start(app: &AppHandle) {
     let _ = HANDLE.set(app.clone());
     unsafe {
-        // SAFETY: колбэк — глобальная функция; подписка на Darwin-уведомление.
-        let name = CFString::new(super::ffi::K_TIS_NOTIFY_SELECTED_INPUT_SOURCE_CHANGED);
+        // SAFETY: колбэк — глобальная функция; имя уведомления —
+        // вшитый CFString HIToolbox (строкой центр не принимает:
+        // сопоставление идёт по самому символу, из-за поддельного
+        // имени наблюдатель раньше не срабатывал никогда).
         let center = super::ffi::CFNotificationCenterGetDistributedCenter();
         super::ffi::CFNotificationCenterAddObserver(
             center,
             std::ptr::null(),
             on_selected_input_changed_notify,
-            name.as_concrete_TypeRef(),
+            super::ffi::kTISNotifySelectedKeyboardInputSourceChanged,
             std::ptr::null(),
             0,
         );
     }
-    // Первичная установка флага.
+    // Первичная установка флага и кэша включённых раскладок пары.
+    super::input_source::refresh_enabled_pair();
     let id = current_input_source_id();
     tray::update_layout_flag(app, &id);
 }

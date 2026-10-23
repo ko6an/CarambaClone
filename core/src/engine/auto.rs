@@ -349,11 +349,14 @@ impl Engine {
             Event::LayoutChanged { new_layout } => {
                 // Ручная смена раскладки: буфер сбрасываем, язык синхронизируем.
                 self.buffer.clear();
-                if new_layout.contains("Russian") {
-                    self.current_lang = Lang::Ru;
-                } else if new_layout.contains("keylayout.US") || new_layout.ends_with(".US") {
-                    self.current_lang = Lang::En;
-                }
+                // Пара EN/RU: всё нерусское (US, ABC, British…) — английская
+                // сторона пары; раньше распознавался только keylayout.US,
+                // и на машинах с «ABC» язык движка рассинхронизировался.
+                self.current_lang = if new_layout.contains("Russian") {
+                    Lang::Ru
+                } else {
+                    Lang::En
+                };
                 Vec::new()
             }
             Event::KeyDown {
@@ -1076,6 +1079,28 @@ mod tests {
         let mut e = Engine::new();
         let d = e.evaluate(&token_en("hi"), 1000);
         assert_eq!(d.reason, Reason::Skipped);
+    }
+
+    #[test]
+    fn layout_changed_понимает_abc() {
+        // На машинах, где вместо «U.S.» включена «ABC», язык движка
+        // обязан синхронизироваться (раньше распознавался только US).
+        let mut e = Engine::new();
+        e.set_current_lang(Lang::En);
+        e.on_event(
+            Event::LayoutChanged {
+                new_layout: "com.apple.keylayout.Russian".into(),
+            },
+            0,
+        );
+        assert_eq!(e.current_lang(), Lang::Ru);
+        e.on_event(
+            Event::LayoutChanged {
+                new_layout: "com.apple.keylayout.ABC".into(),
+            },
+            0,
+        );
+        assert_eq!(e.current_lang(), Lang::En);
     }
 
     #[test]

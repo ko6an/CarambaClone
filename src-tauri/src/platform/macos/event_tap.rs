@@ -431,17 +431,22 @@ fn handle_key_down(sh: &Arc<TapShared>, event: ffi::CGEventRef) -> ffi::CGEventR
         }
     }
 
-    // Основной путь: движок принимает реальное нажатие.
-    let mut engine = engine_state::lock().lock();
-    let mut actions = engine.on_event(
-        Event::KeyDown {
-            keycode,
-            shift,
-            caps,
-            repeat,
-        },
-        now_ms(),
-    );
+    // Основной путь: движок принимает реальное нажатие. Лок движка
+    // освобождаем до исполнения: внутри execute() бывает синхронная
+    // диспетчеризация в главный поток, который сам может ждать этот
+    // же лок (настройки, наблюдатель раскладки) — иначе взаимоблокировка.
+    let mut actions = {
+        let mut engine = engine_state::lock().lock();
+        engine.on_event(
+            Event::KeyDown {
+                keycode,
+                shift,
+                caps,
+                repeat,
+            },
+            now_ms(),
+        )
+    };
 
     let no_auto = !sh.autoswitch.load(Ordering::SeqCst)
         || sh.app_mode.load(Ordering::SeqCst) == APP_MODE_MANUAL_ONLY;
@@ -544,20 +549,13 @@ fn exec_one(action: &Action) {
             typing::post_text_smart(text);
         }
         Action::SwitchLayout { layout } => {
-            // TISSelectInputSource обязан вызываться в главном потоке:
-            // из потока рун-лупа тапа выбор раскладки молча не работает.
+            // TISSelectInputSource и TISCreateInputSourceList обязаны
+            // работать в главном потоке: из колбэка тапа HIToolbox ловит
+            // dispatch_assert_queue и процесс погибает (SIGTRAP).
+            // Переключение синхронное — печать замены keycode-ами ниже
+            // опирается на уже выбранную раскладку.
             tracing::info!(%layout, "переключение раскладки");
-            let id = layout.clone();
-            if let Some(app) = crate::tray::app_handle() {
-                let r = app.run_on_main_thread(move || {
-                    if let Err(e) = super::input_source::select_by_id(&id) {
-                        tracing::error!("переключение раскладки: {e}");
-                    }
-                });
-                if r.is_err() {
-                    tracing::error!("не передали смену раскладки в main-поток");
-                }
-            } else if let Err(e) = super::input_source::select_by_id(layout) {
+            if let Err(e) = super::input_source::select_layout_threadsafe(layout) {
                 tracing::error!("переключение раскладки: {e}");
             }
         }
@@ -690,21 +688,29 @@ fn on_single_shift_tap() {
             return;
         }
     }
-    let cur = {
+    let (cur, next) = {
         let engine = engine_state::lock().lock();
-        engine.current_layout_id().to_string()
-    };
-    let next = if cur.contains("Russian") {
-        "com.apple.keylayout.US"
-    } else {
-        "com.apple.keylayout.Russian"
+        if engine.current_lang() == caramba_core::layouts::Lang::Ru {
+            (
+                engine.current_layout_id().to_string(),
+                super::input_source::enabled_en_id(),
+            )
+        } else {
+            (
+                engine.current_layout_id().to_string(),
+                super::input_source::enabled_ru_id(),
+            )
+        }
     };
     *sh.last_tap_ms.lock() = Some(now_ms());
     tracing::info!("shift-tap: {cur} -> {next}");
-    let _ = super::input_source::select_by_id(next);
+    // Только через главный поток: из колбэка тапа TIS роняет процесс.
+    if let Err(e) = super::input_source::select_layout_threadsafe(&next) {
+        tracing::error!("shift-tap: {e}");
+    }
     // Синхронизация движка произойдёт уведомлением системы (см. workers.rs),
     // но на всякий случай ускоряем.
-    sync_engine_layout(next);
+    sync_engine_layout(&next);
 }
 
 fn sync_engine_layout(new_layout: &str) {

@@ -178,12 +178,14 @@ pub fn switch_layout_from_menu(app: &tauri::AppHandle) {
     #[cfg(target_os = "macos")]
     {
         use crate::platform::macos::{input_source, layout_notifier};
+        // Кэш включённых раскладок мог устареть; обновляем (мы в main).
+        input_source::refresh_enabled_pair();
         let current = input_source::current_input_source_id();
-        let pair = caramba_core::layouts::builtin_pair();
+        // Реальные включённые источники (ABC вместо U.S. и т.п.).
         let target = if current.contains("Russian") {
-            pair.en.id.clone()
+            input_source::enabled_en_id()
         } else {
-            pair.ru.id.clone()
+            input_source::enabled_ru_id()
         };
         // Сначала точный ID (US/Russian); если его нет в системе —
         // запасной путь: первый источник с нужным языком.

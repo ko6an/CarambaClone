@@ -96,8 +96,6 @@ pub const CARAMBA_MAGIC: i64 = 0xCA_4BA_4BA;
 
 // MARK: — Константы HIToolbox (TextInputSources)
 
-/// kTISNotifySelectedKeyboardInputSourceChanged.
-pub const K_TIS_NOTIFY_SELECTED_INPUT_SOURCE_CHANGED: &str = "AppleSelectedInputChanged";
 /// kTISPropertyInputSourceID.
 pub const K_TIS_PROPERTY_INPUT_SOURCE_ID: &str = "InputSourceID";
 /// kTISPropertyInputSourceCategory.
@@ -173,6 +171,10 @@ extern "C" {
     pub static kTISPropertyInputSourceCategory: CFStringRef;
     pub static kTISPropertyInputSourceLanguages: CFStringRef;
     pub static kTISCategoryKeyboardInputSource: CFStringRef;
+    /// Настоящее имя Darwin-уведомления о смене выбранного источника
+    /// ввода (строкой его задавать нельзя — центр сопоставляет по
+    /// самому CFString-символу).
+    pub static kTISNotifySelectedKeyboardInputSourceChanged: CFStringRef;
     pub fn TISCreateInputSourceList(
         properties: CFDictionaryRef,
         include_all_installed: bool,

@@ -146,6 +146,10 @@ fn main() {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
+            // Дескриптор нужен потокам (тап/орфография диспетчеризируются
+            // в главный поток) — запоминаем до старта тапа.
+            tray::remember_app_handle(app.handle());
+
             // Движок и тап (M2): автомат, поток CGEventTap, наблюдатели.
             #[cfg(target_os = "macos")]
             {
@@ -189,7 +193,6 @@ fn main() {
             }
 
             tray::create_tray(app.handle())?;
-            tray::remember_app_handle(app.handle());
             Ok(())
         })
         .run(tauri::generate_context!())

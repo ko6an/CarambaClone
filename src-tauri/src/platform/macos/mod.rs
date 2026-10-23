@@ -13,6 +13,8 @@ pub mod input_source;
 #[cfg(target_os = "macos")]
 pub mod layout_notifier;
 #[cfg(target_os = "macos")]
+pub mod main_thread;
+#[cfg(target_os = "macos")]
 pub mod pasteboard;
 #[cfg(target_os = "macos")]
 pub mod profiles;
