@@ -2,7 +2,47 @@
 //! текст юникод-строками, хоткеи. Все события помечаются MAGIC —
 //! тап пропускает их.
 
+use caramba_core::layouts::{classify, CharClass};
+use std::sync::OnceLock;
+
 use super::ffi;
+
+/// Встроенная пара раскладок (однократная инициализация).
+fn pair() -> &'static caramba_core::layouts::Pair {
+    static PAIR: OnceLock<caramba_core::layouts::Pair> = OnceLock::new();
+    PAIR.get_or_init(caramba_core::layouts::builtin_pair)
+}
+
+/// Печать текста «настоящими клавишами»: для каждого символа ищем
+/// (keycode, shift) в таблице выбранной раскладки. Символы, которых
+/// нет в таблице, печатаются юникод-строками (старый путь).
+/// Выбор таблицы: кириллица -> RU, иначе EN.
+pub fn post_text_smart(text: &str) {
+    let pair = pair();
+    let cyr = text.chars().any(|c| classify(c) == CharClass::Cyrillic);
+    let table = if cyr { &pair.ru } else { &pair.en };
+    let mut missing = String::new();
+    let mut keys: Vec<(u16, bool)> = Vec::new();
+    for c in text.chars() {
+        let key = c.to_string();
+        if let Some(e) = table.keys.iter().find(|e| e.lower == key || e.upper == key) {
+            // Сначала сбрасываем копящийся юникод-хвост, потом клавиша.
+            if !missing.is_empty() {
+                post_text(&missing);
+                missing.clear();
+            }
+            keys.push((e.kc, e.upper == key));
+        } else {
+            missing.push(c);
+        }
+    }
+    if !missing.is_empty() {
+        post_text(&missing);
+    }
+    if !keys.is_empty() {
+        post_keys(&keys);
+    }
+}
 
 /// Указатель CF-источника: безопасен для хранения между потоками
 /// (CGEventSource иммутабелен после создания).

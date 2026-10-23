@@ -508,41 +508,57 @@ fn mask_substitute(sh: &Arc<TapShared>, keycode: u16, shift: bool, caps: bool) -
 
 /// Исполнение решений движка.
 pub fn execute(actions: &[Action]) {
+    // Смена раскладки идёт до замен: печать keycode-ами опирается на
+    // уже выбранную раскладку.
     for action in actions {
-        match action {
-            Action::Pass | Action::Swallow => {}
-            Action::Replace { backspaces, text } => {
-                if *backspaces > 0 {
-                    typing::post_backspaces(*backspaces);
-                }
-                typing::post_text(text);
-                if !text.is_empty() {
-                    stats_add_fixed();
-                }
-                // По ТЗ текст в журнал не пишется — только длина.
-                tracing::info!(
-                    backspaces = *backspaces,
-                    len = text.chars().count(),
-                    "замена выполнена"
-                );
-            }
-            Action::SwitchLayout { layout } => {
-                tracing::info!(%layout, "переключение раскладки");
-                let _ = super::input_source::select_by_id(layout);
-            }
-            Action::Sound(kind) => {
-                let (switch_file, fix_file, volume) = {
-                    let cfg = crate::commands::sound_config_snapshot();
-                    (cfg.0, cfg.1, cfg.2)
-                };
-                let (kind_name, file) = match kind {
-                    SoundKind::Switch => ("switch", switch_file.as_deref()),
-                    SoundKind::Fix => ("fix", fix_file.as_deref()),
-                };
-                super::sound::play(kind_name, file, volume);
-            }
-            Action::Hint { text } => tracing::info!("подсказка: {text}"),
+        if matches!(action, Action::SwitchLayout { .. }) {
+            exec_one(action);
         }
+    }
+    for action in actions {
+        if !matches!(action, Action::SwitchLayout { .. }) {
+            exec_one(action);
+        }
+    }
+}
+
+/// Исполнение одного действия.
+fn exec_one(action: &Action) {
+    match action {
+        Action::Pass | Action::Swallow => {}
+        Action::Replace { backspaces, text } => {
+            if *backspaces > 0 {
+                typing::post_backspaces(*backspaces);
+            }
+            if !text.is_empty() {
+                stats_add_fixed();
+            }
+            // По ТЗ текст в журнал не пишется — только длина.
+            tracing::info!(
+                backspaces = *backspaces,
+                len = text.chars().count(),
+                "замена выполнена"
+            );
+            // Живой путь: настоящие клавиши по таблице раскладки;
+            // недостающие символы — юникод-строкой (старый путь).
+            typing::post_text_smart(text);
+        }
+        Action::SwitchLayout { layout } => {
+            tracing::info!(%layout, "переключение раскладки");
+            let _ = super::input_source::select_by_id(layout);
+        }
+        Action::Sound(kind) => {
+            let (switch_file, fix_file, volume) = {
+                let cfg = crate::commands::sound_config_snapshot();
+                (cfg.0, cfg.1, cfg.2)
+            };
+            let (kind_name, file) = match kind {
+                SoundKind::Switch => ("switch", switch_file.as_deref()),
+                SoundKind::Fix => ("fix", fix_file.as_deref()),
+            };
+            super::sound::play(kind_name, file, volume);
+        }
+        Action::Hint { text } => tracing::info!("подсказка: {text}"),
     }
 }
 
