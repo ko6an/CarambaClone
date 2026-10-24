@@ -1104,7 +1104,7 @@ function renderAbout(el: HTMLElement): void {
       versionBadgeEl.textContent = `v${ver}`;
     }
   }).catch(() => {
-    versionEl.textContent = "Версия 1.0.6";
+    versionEl.textContent = "Версия 1.0.7";
   });
 
   const desc = document.createElement("p");

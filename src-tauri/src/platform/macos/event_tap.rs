@@ -461,10 +461,25 @@ fn handle_key_down(sh: &Arc<TapShared>, event: ffi::CGEventRef) -> ffi::CGEventR
         return event;
     }
 
+    // Если есть Replace, граничное событие (пробел, Enter и т.п.) нужно
+    // поглотить и перепостить *после* замены: иначе оно приходит в приложение
+    // раньше синтетических backspace'ов (CGEventPost ставит в конец очереди),
+    // и backspace'ы удаляют пробел + (N-1) символов вместо всего слова.
+    let has_replace = actions.iter().any(|a| matches!(a, Action::Replace { .. }));
+
     execute(&actions);
-    // Граничное событие (пробел, Enter и т.п.) не поглощаем — оно должно быть напечатано
-    // в приложении сразу после вставки заменённого слова.
-    event
+
+    if has_replace {
+        // Небольшая пауза, чтобы приложение успело завершить обработку вставки
+        std::thread::sleep(std::time::Duration::from_millis(3));
+        // Перепостить граничную клавишу как синтетическое событие:
+        // оно попадёт в очередь уже после backspace'ов и текста замены.
+        typing::post_key_event(keycode, true, flags);
+        typing::post_key_event(keycode, false, flags);
+        std::ptr::null_mut() // поглощаем оригинальное событие
+    } else {
+        event
+    }
 }
 
 /// Пары двойников (вшитая таблица `resources/masking/pairs.toml`).
@@ -532,6 +547,7 @@ fn exec_one(action: &Action) {
         Action::Replace { backspaces, text } => {
             if *backspaces > 0 {
                 typing::post_backspaces(*backspaces);
+                std::thread::sleep(std::time::Duration::from_millis(3));
             }
             if !text.is_empty() {
                 stats_add_fixed();
@@ -542,8 +558,6 @@ fn exec_one(action: &Action) {
                 len = text.chars().count(),
                 "замена выполнена"
             );
-            // Печать Unicode-строкой (CGEventKeyboardSetUnicodeString) — гарантирует
-            // точный текст в поле ввода независимо от задержек переключения TIS в приложении.
             typing::post_text(text);
         }
         Action::SwitchLayout { layout } => {

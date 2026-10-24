@@ -83,6 +83,12 @@ fn post_key(kc: u16, down: bool, flags: u64) {
     }
 }
 
+/// Публичная обёртка: отправить синтетическое нажатие с флагами.
+/// Используется для перепоста граничного события после замены текста.
+pub fn post_key_event(kc: u16, down: bool, flags: u64) {
+    post_key(kc, down, flags);
+}
+
 /// Нажатия клавиш: (keycode, shift).
 pub fn post_keys(keys: &[(u16, bool)]) {
     for &(kc, shift) in keys {
@@ -96,35 +102,59 @@ pub fn post_keys(keys: &[(u16, bool)]) {
     }
 }
 
-/// Сколько UTF-16 единиц печатается за один keyDown (ограничение API).
-const UNICODE_CHUNK: usize = 20;
-
-/// Печать текста юникод-строками (чанками по 20 UTF-16 единиц).
+/// Печать текста: для каждого символа находим соответствующую клавишу раскладки
+/// и одновременно прикрепляем Unicode-символ.
+/// Это гарантирует работу во всех приложениях (браузеры, Electron, AppKit, терминалы).
 pub fn post_text(text: &str) {
-    let units: Vec<u16> = text.encode_utf16().collect();
-    if units.is_empty() {
+    if text.is_empty() {
         return;
     }
-    for chunk in units.chunks(UNICODE_CHUNK) {
+    let pair = pair();
+    let cyr = text.chars().any(|c| classify(c) == CharClass::Cyrillic);
+    let table = if cyr { &pair.ru } else { &pair.en };
+
+    for c in text.chars() {
+        let key = c.to_string();
+        let (kc, shift) = if let Some(e) = table.keys.iter().find(|e| e.lower == key || e.upper == key) {
+            (e.kc, e.upper == key)
+        } else {
+            (0, false)
+        };
+
+        let flags = if shift {
+            ffi::K_CG_EVENT_FLAG_MASK_SHIFT
+        } else {
+            0
+        };
+
+        let mut utf16 = [0u16; 2];
+        let utf16_slice = c.encode_utf16(&mut utf16);
+        let len = utf16_slice.len();
+
         unsafe {
-            // SAFETY: keycode 255 («неопределённая» клавиша) — стандартный
-            // способ напечатать юникод; событие освобождаем сразу.
-            let ev = ffi::CGEventCreateKeyboardEvent(source(), 255, true);
-            if ev.is_null() {
-                continue;
+            let ev = ffi::CGEventCreateKeyboardEvent(source(), kc, true);
+            if !ev.is_null() {
+                mark(ev);
+                if flags != 0 {
+                    ffi::CGEventSetFlags(ev, flags);
+                }
+                ffi::CGEventKeyboardSetUnicodeString(ev, len, utf16.as_ptr());
+                ffi::CGEventPost(ffi::K_CG_SESSION_EVENT_TAP, ev);
+                ffi::CFRelease(ev as *const std::os::raw::c_void);
             }
-            mark(ev);
-            ffi::CGEventKeyboardSetUnicodeString(ev, chunk.len(), chunk.as_ptr());
-            ffi::CGEventPost(ffi::K_CG_SESSION_EVENT_TAP, ev);
-            let up_ev = ffi::CGEventCreateKeyboardEvent(source(), 255, false);
+
+            let up_ev = ffi::CGEventCreateKeyboardEvent(source(), kc, false);
             if !up_ev.is_null() {
                 mark(up_ev);
-                ffi::CGEventKeyboardSetUnicodeString(up_ev, chunk.len(), chunk.as_ptr());
+                if flags != 0 {
+                    ffi::CGEventSetFlags(up_ev, flags);
+                }
+                ffi::CGEventKeyboardSetUnicodeString(up_ev, len, utf16.as_ptr());
                 ffi::CGEventPost(ffi::K_CG_SESSION_EVENT_TAP, up_ev);
                 ffi::CFRelease(up_ev as *const std::os::raw::c_void);
             }
-            ffi::CFRelease(ev as *const std::os::raw::c_void);
         }
+        std::thread::sleep(std::time::Duration::from_millis(1));
     }
 }
 
@@ -133,6 +163,7 @@ pub fn post_backspaces(n: usize) {
     for _ in 0..n {
         post_key(0x33, true, 0); // kVK_Delete
         post_key(0x33, false, 0);
+        std::thread::sleep(std::time::Duration::from_millis(1));
     }
 }
 

@@ -46,3 +46,22 @@
 **Решение:**
 - В [src-tauri/src/platform/macos/workers.rs](file:///Users/dmitry/Downloads/CarambaClone/src-tauri/src/platform/macos/workers.rs) интервал обновления сокращён с 30 до 5 секунд.
 - В [src/main.ts](file:///Users/dmitry/Downloads/CarambaClone/src/main.ts) добавлен `setInterval(refreshStats, 5000)` с очисткой по MutationObserver.
+
+---
+
+## Bug 5: Ошибки при автозамене (текст обрезается до 1 буквы, замена не вставляется) [ВЫПОЛНЕНО]
+
+**Проблема:**
+1. При вводе слова с опечаткой (например, `ghbdtn` + пробел) граничный символ (пробел) возвращался из event tap напрямую, попадая в поле ввода *до* того, как выполнялись синтетические Backspace'ы через `CGEventPost`. В результате `N` backspace'ов удаляли пробел и `N-1` букв слова, оставляя первую букву (`g`).
+2. Вставка замещающего текста (`post_text`) отправляла фиктивный keycode 255 (недопустимый в macOS Carbon/Cocoa) и весь текст единым пакетом до 20 UTF-16 единиц. Большинство macOS-приложений (Chrome, Electron, AppKit, Terminal) игнорируют или сбрасывают такие события.
+3. Отсутствие пауз между пакетами событий приводило к слиянию или пропуску событий ввода в приложении.
+
+**Решение:**
+- В [src-tauri/src/platform/macos/event_tap.rs](file:///Users/dmitry/Downloads/CarambaClone/src-tauri/src/platform/macos/event_tap.rs):
+  - При наличии действия `Action::Replace` оригинальное граничное событие (пробел/Enter) поглощается (`null_mut`).
+  - Граничное событие перепостится синтетически *после* стирания и набора текста замены.
+  - Добавлены микро-интервалы (3 мс) между стиранием, набором и перепостом границы.
+- В [src-tauri/src/platform/macos/typing.rs](file:///Users/dmitry/Downloads/CarambaClone/src-tauri/src/platform/macos/typing.rs):
+  - Метод `post_text` полностью переписан: для каждого символа определяется реальный виртуальный keycode раскладки (плюс флаг Shift), и одновременно прикрепляется `CGEventKeyboardSetUnicodeString` для отдельного символа.
+  - Добавлена межсимвольная пауза (1 мс) для надёжной обработки очередью событий целевого окна.
+  - В `post_backspaces` добавлена микропауза между нажатиями Delete.
